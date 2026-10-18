@@ -1,0 +1,8 @@
+{
+  "name": "Foodie BD (খাদক ম্যাপ)",
+  "description": "Discover famous regional foods across all 8 divisions and 64 districts of Bangladesh on an interactive map, track culinary journeys, and explore authentic culinary heritage.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

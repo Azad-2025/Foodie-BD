@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 60" width="240" height="60" fill="none">
+  <!-- Brand Icon Badge -->
+  <g transform="translate(4, 4)">
+    <!-- Background rounded emblem in forest green -->
+    <rect x="0" y="0" width="52" height="52" rx="14" fill="#155C3A"/>
+    <!-- Warm orange subtle border ring -->
+    <rect x="1" y="1" width="50" height="50" rx="13" stroke="#F39C3D" stroke-width="1.5" stroke-opacity="0.35"/>
+
+    <!-- Crimson Red Sun circle (representing Bangladesh) -->
+    <circle cx="34" cy="18" r="11" fill="#E74C3C"/>
+
+    <!-- Stylized Map Pin / Plate Contour -->
+    <path d="M26 12 C19.37 12 14 17.37 14 24 C14 32.5 26 43 26 43 C26 43 38 32.5 38 24 C38 17.37 32.63 12 26 12 Z" fill="#FAF8F3" fill-opacity="0.95"/>
+
+    <!-- Fork & Spoon crossed inside the pin in forest green -->
+    <g transform="translate(19, 16)" fill="#155C3A">
+      <!-- Fork -->
+      <path d="M4 1.5 C4 1.2 4.2 1 4.5 1 C4.8 1 5 1.2 5 1.5 V5 C5 5.8 4.6 6.5 4 6.8 V12.5 C4 12.8 3.8 13 3.5 13 C3.2 13 3 12.8 3 12.5 V6.8 C2.4 6.5 2 5.8 2 5 V1.5 C2 1.2 2.2 1 2.5 1 C2.8 1 3 1.2 3 1.5 V4.5 H3.5 V1.5 C3.5 1.2 3.7 1 4 1 Z"/>
+      <!-- Spoon -->
+      <path d="M9.5 1 C11 1 12 2.5 12 4.5 C12 6.2 11.2 7 10 7.3 V12.5 C10 12.8 9.8 13 9.5 13 C9.2 13 9 12.8 9 12.5 V7.3 C7.8 7 7 6.2 7 4.5 C7 2.5 8 1 9.5 1 Z"/>
+    </g>
+
+    <!-- Warm golden steam accents -->
+    <path d="M22 8.5 C22 7.5 23.5 7 23.5 6" stroke="#F39C3D" stroke-width="1.5" stroke-linecap="round"/>
+    <path d="M26 8 C26.5 7 25 6 25.5 5" stroke="#F39C3D" stroke-width="1.5" stroke-linecap="round"/>
+    <path d="M30 8.5 C30 7.5 31.5 7 31.5 6" stroke="#F39C3D" stroke-width="1.5" stroke-linecap="round"/>
+  </g>
+
+  <!-- Typography: Foodie BD -->
+  <g transform="translate(66, 32)">
+    <text font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="900" font-size="22" letter-spacing="-0.5" fill="#155C3A">
+      Foodie <tspan fill="#E74C3C">BD</tspan>
+    </text>
+  </g>
+
+  <!-- Bengali Subtitle: (খাদক ম্যাপ) -->
+  <g transform="translate(67, 49)">
+    <text font-family="'Hind Siliguri', 'Noto Sans Bengali', sans-serif" font-weight="700" font-size="12" letter-spacing="0.2" fill="#78350F" fill-opacity="0.85">
+      খাদক ম্যাপ
+    </text>
+    <!-- Warm orange discovery dot -->
+    <circle cx="58" cy="-4" r="2.5" fill="#F39C3D"/>
+  </g>
+</svg>
