@@ -215,14 +215,35 @@ async function runTestSuite() {
 
   const migration1 = path.resolve(process.cwd(), 'server/migrations/001_initial_schema.sql');
   const migration2 = path.resolve(process.cwd(), 'server/migrations/002_seed_data.sql');
+  const migration3 = path.resolve(process.cwd(), 'server/migrations/003_complete_schema_and_submissions.sql');
 
   assert(fs.existsSync(migration1), '001_initial_schema.sql exists and is ready for PostgreSQL/Supabase');
   assert(fs.existsSync(migration2), '002_seed_data.sql exists with seed dataset for 64 districts');
+  assert(fs.existsSync(migration3), '003_complete_schema_and_submissions.sql exists with submissions and reports schema');
 
   const m1Content = fs.readFileSync(migration1, 'utf8');
   assert(m1Content.includes('CREATE TABLE IF NOT EXISTS districts'), 'Migration 001 defines districts table');
   assert(m1Content.includes('CREATE TABLE IF NOT EXISTS user_foods'), 'Migration 001 defines user_foods journey tracking table');
   assert(m1Content.includes('ENABLE ROW LEVEL SECURITY'), 'Migration 001 includes Row Level Security (RLS) policies');
+  assert(m1Content.includes('(auth.uid())::text'), 'Migration 001 uses type-safe (auth.uid())::text comparison for RLS');
+  assert(m1Content.includes('DROP POLICY IF EXISTS'), 'Migration 001 uses idempotent DROP POLICY IF EXISTS pattern');
+
+  const m2Content = fs.readFileSync(migration2, 'utf8');
+  assert(m2Content.includes('ON CONFLICT (id) DO NOTHING'), 'Migration 002 uses ON CONFLICT DO NOTHING for idempotent seeding');
+  // Verify 8 divisions and 64 districts in 002
+  const divisionMatches = m2Content.match(/\('(dhaka|chattogram|rajshahi|khulna|barishal|sylhet|rangpur|mymensingh)',/g);
+  assert(Boolean(divisionMatches && divisionMatches.length >= 8), 'Migration 002 seeds all 8 divisions');
+
+
+  const m3Content = fs.readFileSync(migration3, 'utf8');
+  assert(m3Content.includes('CREATE TABLE IF NOT EXISTS food_submissions'), 'Migration 003 defines food_submissions table');
+  assert(m3Content.includes('CREATE TABLE IF NOT EXISTS reports'), 'Migration 003 defines reports table');
+  assert(m3Content.includes('ALTER TABLE reports ENABLE ROW LEVEL SECURITY'), 'Migration 003 enables RLS on reports table');
+  assert(m3Content.includes('CREATE POLICY "Users can view own reports"'), 'Migration 003 defines SELECT RLS policy for reports');
+  assert(m3Content.includes('CREATE POLICY "Users can insert reports"'), 'Migration 003 defines INSERT RLS policy for reports');
+  assert(m3Content.includes('CREATE POLICY "Admins can update reports"'), 'Migration 003 defines UPDATE RLS policy for reports');
+  assert(m3Content.includes('(auth.uid())::text'), 'Migration 003 uses type-safe (auth.uid())::text comparison for RLS');
+
 
 
   // ----------------------------------------------------

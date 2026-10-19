@@ -4,12 +4,27 @@
 -- Description: Complete relational schema with RLS and constraints
 -- ====================================================================
 
+-- 0. Ensure auth schema & stub function for standalone PostgreSQL environments
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_proc 
+        JOIN pg_namespace ON pg_proc.pronamespace = pg_namespace.oid 
+        WHERE pg_namespace.nspname = 'auth' AND pg_proc.proname = 'uid'
+    ) THEN
+        CREATE SCHEMA IF NOT EXISTS auth;
+        CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $fn$
+            SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid;
+        $fn$;
+    END IF;
+END $$;
+
 -- 1. Enum Types (Safe & Idempotent)
 DO $$ BEGIN
     CREATE TYPE user_role AS ENUM ('guest', 'user', 'admin');
 EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;
+
 
 DO $$ BEGIN
     CREATE TYPE journey_status AS ENUM ('want_to_try', 'tried');
@@ -191,6 +206,11 @@ ON profiles FOR SELECT USING (true);
 DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
 CREATE POLICY "Users can update own profile" 
 ON profiles FOR UPDATE USING ((auth.uid())::text = id);
+
+DROP POLICY IF EXISTS "Users can insert own profile" ON profiles;
+CREATE POLICY "Users can insert own profile" 
+ON profiles FOR INSERT WITH CHECK ((auth.uid())::text = id);
+
 
 -- User Foods: Users can only select, insert, update, or delete their own tracking records
 DROP POLICY IF EXISTS "Users can view own tracking records" ON user_foods;

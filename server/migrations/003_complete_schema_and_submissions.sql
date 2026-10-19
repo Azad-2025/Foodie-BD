@@ -88,32 +88,65 @@ CREATE INDEX IF NOT EXISTS idx_reports_reporter ON reports(reporter_user_id);
 ALTER TABLE food_submissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reports ENABLE ROW LEVEL SECURITY;
 
--- Submissions: Submitters can view own submissions; admins can view all submissions
-DO $$ BEGIN
-    CREATE POLICY "Users can view own submissions"
-    ON food_submissions FOR SELECT USING (
-        user_id = auth.uid()::text OR 
-        EXISTS (SELECT 1 FROM profiles WHERE profiles.id::text = auth.uid()::text AND profiles.role = 'admin')
-    );
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
+-- Submissions Policies:
+-- Submitters can view their own submissions; admins can view all submissions
+DROP POLICY IF EXISTS "Users can view own submissions" ON food_submissions;
+CREATE POLICY "Users can view own submissions"
+ON food_submissions FOR SELECT USING (
+    user_id = (auth.uid())::text OR 
+    EXISTS (SELECT 1 FROM profiles WHERE profiles.id = (auth.uid())::text AND profiles.role = 'admin')
+);
 
-DO $$ BEGIN
-    CREATE POLICY "Users can insert own submissions"
-    ON food_submissions FOR INSERT WITH CHECK (
-        user_id = auth.uid()::text
-    );
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
+-- Users can insert their own submissions
+DROP POLICY IF EXISTS "Users can insert own submissions" ON food_submissions;
+CREATE POLICY "Users can insert own submissions"
+ON food_submissions FOR INSERT WITH CHECK (
+    user_id = (auth.uid())::text
+);
 
-DO $$ BEGIN
-    CREATE POLICY "Users can update own pending submissions"
-    ON food_submissions FOR UPDATE USING (
-        (user_id = auth.uid()::text AND status = 'pending') OR
-        EXISTS (SELECT 1 FROM profiles WHERE profiles.id::text = auth.uid()::text AND profiles.role = 'admin')
-    );
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
+-- Users can update own pending submissions; admins can review/update any submission
+DROP POLICY IF EXISTS "Users can update own pending submissions" ON food_submissions;
+CREATE POLICY "Users can update own pending submissions"
+ON food_submissions FOR UPDATE USING (
+    (user_id = (auth.uid())::text AND status = 'pending') OR
+    EXISTS (SELECT 1 FROM profiles WHERE profiles.id = (auth.uid())::text AND profiles.role = 'admin')
+);
+
+-- Users can delete own pending submissions; admins can delete any submission
+DROP POLICY IF EXISTS "Users can delete own pending submissions" ON food_submissions;
+CREATE POLICY "Users can delete own pending submissions"
+ON food_submissions FOR DELETE USING (
+    (user_id = (auth.uid())::text AND status = 'pending') OR
+    EXISTS (SELECT 1 FROM profiles WHERE profiles.id = (auth.uid())::text AND profiles.role = 'admin')
+);
+
+-- Reports Policies:
+-- Reporters can view their own reports; admins can view all moderation reports
+DROP POLICY IF EXISTS "Users can view own reports" ON reports;
+CREATE POLICY "Users can view own reports"
+ON reports FOR SELECT USING (
+    reporter_user_id = (auth.uid())::text OR
+    EXISTS (SELECT 1 FROM profiles WHERE profiles.id = (auth.uid())::text AND profiles.role = 'admin')
+);
+
+-- Authenticated users can submit moderation reports
+DROP POLICY IF EXISTS "Users can insert reports" ON reports;
+CREATE POLICY "Users can insert reports"
+ON reports FOR INSERT WITH CHECK (
+    reporter_user_id = (auth.uid())::text
+);
+
+-- Only admins can review and update report status (e.g. reviewed, dismissed)
+DROP POLICY IF EXISTS "Admins can update reports" ON reports;
+CREATE POLICY "Admins can update reports"
+ON reports FOR UPDATE USING (
+    EXISTS (SELECT 1 FROM profiles WHERE profiles.id = (auth.uid())::text AND profiles.role = 'admin')
+);
+
+-- Only admins can delete reports
+DROP POLICY IF EXISTS "Admins can delete reports" ON reports;
+CREATE POLICY "Admins can delete reports"
+ON reports FOR DELETE USING (
+    EXISTS (SELECT 1 FROM profiles WHERE profiles.id = (auth.uid())::text AND profiles.role = 'admin')
+);
+
