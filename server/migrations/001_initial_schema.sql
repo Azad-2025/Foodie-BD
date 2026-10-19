@@ -60,7 +60,6 @@ CREATE TABLE IF NOT EXISTS food_categories (
 );
 
 -- 5. User Profiles Table
--- 5. User Profiles Table
 CREATE TABLE IF NOT EXISTS profiles (
     id VARCHAR(100) PRIMARY KEY,
     name VARCHAR(150) NOT NULL,
@@ -177,38 +176,54 @@ ALTER TABLE user_foods ENABLE ROW LEVEL SECURITY;
 ALTER TABLE food_reviews ENABLE ROW LEVEL SECURITY;
 ALTER TABLE admin_audit_logs ENABLE ROW LEVEL SECURITY;
 
+-- Note on Authentication Model:
+-- Foodie BD uses server-side HMAC-SHA256 JWT authentication with application-managed
+-- user IDs (e.g. 'user_xxxxxxxx' or 'user_admin_01') stored in VARCHAR(100) columns.
+-- Primary access control is enforced in Express middleware (requireAuth, requireAdmin)
+-- connecting via PostgreSQL pool. These RLS policies provide type-safe defense-in-depth
+-- for direct Supabase PostgREST access using (auth.uid())::text.
+
 -- Profiles: Public can view basic info; users can only update their own profile
+DROP POLICY IF EXISTS "Public profiles are viewable by everyone" ON profiles;
 CREATE POLICY "Public profiles are viewable by everyone" 
 ON profiles FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
 CREATE POLICY "Users can update own profile" 
-ON profiles FOR UPDATE USING (auth.uid() = id);
+ON profiles FOR UPDATE USING ((auth.uid())::text = id);
 
 -- User Foods: Users can only select, insert, update, or delete their own tracking records
+DROP POLICY IF EXISTS "Users can view own tracking records" ON user_foods;
 CREATE POLICY "Users can view own tracking records" 
-ON user_foods FOR SELECT USING (auth.uid() = user_id);
+ON user_foods FOR SELECT USING ((auth.uid())::text = user_id);
 
+DROP POLICY IF EXISTS "Users can insert own tracking records" ON user_foods;
 CREATE POLICY "Users can insert own tracking records" 
-ON user_foods FOR INSERT WITH CHECK (auth.uid() = user_id);
+ON user_foods FOR INSERT WITH CHECK ((auth.uid())::text = user_id);
 
+DROP POLICY IF EXISTS "Users can update own tracking records" ON user_foods;
 CREATE POLICY "Users can update own tracking records" 
-ON user_foods FOR UPDATE USING (auth.uid() = user_id);
+ON user_foods FOR UPDATE USING ((auth.uid())::text = user_id);
 
+DROP POLICY IF EXISTS "Users can delete own tracking records" ON user_foods;
 CREATE POLICY "Users can delete own tracking records" 
-ON user_foods FOR DELETE USING (auth.uid() = user_id);
+ON user_foods FOR DELETE USING ((auth.uid())::text = user_id);
 
 -- Reviews: Everyone can read reviews; users can insert their own reviews
+DROP POLICY IF EXISTS "Reviews viewable by everyone" ON food_reviews;
 CREATE POLICY "Reviews viewable by everyone" 
 ON food_reviews FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "Users can write reviews" ON food_reviews;
 CREATE POLICY "Users can write reviews" 
-ON food_reviews FOR INSERT WITH CHECK (auth.uid() = user_id);
+ON food_reviews FOR INSERT WITH CHECK ((auth.uid())::text = user_id);
 
 -- Audit logs: Only administrators can read audit logs
+DROP POLICY IF EXISTS "Admins can view audit logs" ON admin_audit_logs;
 CREATE POLICY "Admins can view audit logs" 
 ON admin_audit_logs FOR SELECT USING (
     EXISTS (
         SELECT 1 FROM profiles 
-        WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
+        WHERE profiles.id = (auth.uid())::text AND profiles.role = 'admin'
     )
 );
