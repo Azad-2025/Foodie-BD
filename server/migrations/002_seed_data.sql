@@ -108,3 +108,15 @@ INSERT INTO districts (id, division_id, name_en, name_bn, shape_name, lat, lng, 
 ('netrakona', 'mymensingh', 'Netrakona', 'নেত্রকোণা', 'Netrakona', 24.8709, 90.7279, 'Balish Mishti (Goyanath)', 'গয়ানাথের বালিশ মিষ্টি', 'Giant pillow-shaped sweets soaked in thick cream.'),
 ('sherpur', 'mymensingh', 'Sherpur', 'শেরপুর', 'Sherpur', 25.0205, 90.0153, 'Chhanar Payesh & Tiler Pitha', 'ছানার পায়েস ও তিলের পিঠা', 'Rich chhana payesh pudding and roasted sesame pithas.')
 ON CONFLICT (id) DO NOTHING;
+
+-- 4. Insert Standard Achievement Definitions (7)
+INSERT INTO achievements (id, title_en, title_bn, description_en, description_bn, icon, category, threshold) VALUES
+('first_bite', 'First Bite of Bengal', 'বাংলার প্রথম স্বাদ', 'Logged your very first Bangladeshi food experience.', 'আপনার প্রথম খাবার ট্র্যাকিং সম্পন্ন করেছেন।', 'Utensils', 'count', 1),
+('sweet_tooth', 'Misti Moghol (Sweet Connoisseur)', 'মিষ্টি মোঘল', 'Tasted at least 3 heritage Bengali sweets or pithas.', 'কমপক্ষে ৩টি ঐতিহ্যবাহী মিষ্টি বা পিঠা চেখে দেখেছেন।', 'Cake', 'specialty', 3),
+('dhaka_foodie', 'Old Dhaka Foodie', 'ঢাকাইয়া খাদক', 'Experienced 3 authentic foods from Dhaka division.', 'ঢাকা বিভাগের ৩টি ঐতিহ্যবাহী খাবার উপভোগ করেছেন।', 'Crown', 'division', 3),
+('spice_chaser', 'Spicy Explorer', 'ঝাল প্রেমী খাদক', 'Tried Kala Bhuna or Chui Jhal delicacies.', 'কালা ভুনা বা চুইঝালের মতো ঝাল খাবার চেখেছেন।', 'Flame', 'specialty', 2),
+('five_districts', 'District Hopper', 'জেলা পরিভ্রমণকারী', 'Explored foods from 5 different districts.', '৫টি ভিন্ন জেলার খাবার আবিষ্কার করেছেন।', 'Compass', 'count', 5),
+('ten_districts', 'True Khadok (Food Adventurer)', 'খাঁটি খাদক', 'Explored foods from 10 different districts.', '১০টি ভিন্ন জেলার সুস্বাদু পদ ট্র্যাকিং করেছেন।', 'Award', 'count', 10),
+('division_master', 'All-Divisions Connoisseur', 'অষ্টবিভাগ জয়ী', 'Tasted at least one dish from all 8 divisions of Bangladesh.', 'বাংলাদেশের ৮টি বিভাগের প্রতিটি থেকেই খাবার চেখে দেখেছেন।', 'MapPin', 'division', 8)
+ON CONFLICT (id) DO NOTHING;
+

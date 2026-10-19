@@ -1,22 +1,29 @@
 -- ====================================================================
 -- Foodie BD (খাদক ম্যাপ) Database Schema Migration 001
 -- Target: PostgreSQL / Supabase
--- Description: Complete relational schema with RLS and constraints
+-- Description: Core relational schema, constraints, indexes & RLS
 -- ====================================================================
-
--- 0. Ensure auth schema & stub function for standalone PostgreSQL environments
-DO $$ BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_proc 
-        JOIN pg_namespace ON pg_proc.pronamespace = pg_namespace.oid 
-        WHERE pg_namespace.nspname = 'auth' AND pg_proc.proname = 'uid'
-    ) THEN
-        CREATE SCHEMA IF NOT EXISTS auth;
-        CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $fn$
-            SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid;
-        $fn$;
-    END IF;
-END $$;
+--
+-- ARCHITECTURE & SECURITY NOTICE:
+-- Foodie BD uses server-side HMAC-SHA256 JWT authentication with application-managed
+-- user IDs (e.g. 'user_admin_01', 'user_...') stored in VARCHAR(100) columns.
+--
+-- 1. BACKEND ACCESS: The Express API server connects as the database owner
+--    ('postgres') via DATABASE_URL using connection pooling (pg.Pool). In PostgreSQL,
+--    the database owner bypasses Row Level Security (RLS) by default, enabling
+--    the server-side DAL to perform authorized operations.
+--
+-- 2. APPLICATION CONTROLS: All authentication (scrypt password hashing with unique
+--    salts), JWT verification, role verification (requireAdmin), input validation,
+--    and immutable audit logging are strictly enforced by the Express backend.
+--
+-- 3. DEFENSE-IN-DEPTH (PostgREST / Direct Client Access):
+--    - Public reference tables (divisions, districts, categories, published foods,
+--      reviews, achievements) permit public read-only (SELECT) access.
+--    - Sensitive tables (profiles, user_foods, admin_audit_logs) have RLS enabled
+--      with NO public policies, preventing anonymous or unauthenticated PostgREST
+--      clients from harvesting password hashes, salts, or private user data.
+-- ====================================================================
 
 -- 1. Enum Types (Safe & Idempotent)
 DO $$ BEGIN
@@ -24,7 +31,6 @@ DO $$ BEGIN
 EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;
-
 
 DO $$ BEGIN
     CREATE TYPE journey_status AS ENUM ('want_to_try', 'tried');
@@ -54,7 +60,7 @@ CREATE TABLE IF NOT EXISTS districts (
     division_id VARCHAR(50) NOT NULL REFERENCES divisions(id) ON DELETE CASCADE,
     name_en VARCHAR(100) NOT NULL,
     name_bn VARCHAR(100) NOT NULL,
-    shape_name VARCHAR(100) NOT NULL UNIQUE, -- Stable identifier mapping to GeoJSON
+    shape_name VARCHAR(100) NOT NULL UNIQUE, -- Stable identifier mapping to GeoJSON boundary
     lat NUMERIC(9, 6) NOT NULL,
     lng NUMERIC(9, 6) NOT NULL,
     prominent_dish_en VARCHAR(255) NOT NULL,
@@ -75,13 +81,15 @@ CREATE TABLE IF NOT EXISTS food_categories (
 );
 
 -- 5. User Profiles Table
+-- NOTE: Stores application-managed user accounts with scrypt password hashes and salts.
+-- Public PostgREST access is strictly forbidden by RLS to protect credentials.
 CREATE TABLE IF NOT EXISTS profiles (
     id VARCHAR(100) PRIMARY KEY,
     name VARCHAR(150) NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     salt VARCHAR(64) NOT NULL,
-    role user_role DEFAULT 'user' NOT NULL, -- Public registration default is strictly 'user'
+    role user_role DEFAULT 'user' NOT NULL,
     avatar_url TEXT,
     home_district_id VARCHAR(50) REFERENCES districts(id) ON DELETE SET NULL,
     bio TEXT,
@@ -127,8 +135,9 @@ CREATE TABLE IF NOT EXISTS foods (
 CREATE INDEX IF NOT EXISTS idx_foods_district ON foods(district_id);
 CREATE INDEX IF NOT EXISTS idx_foods_division ON foods(division_id);
 CREATE INDEX IF NOT EXISTS idx_foods_category ON foods(category_id);
+CREATE INDEX IF NOT EXISTS idx_foods_published ON foods(is_published);
 
--- 7. User Foods / Food Journey Tracking (Persistent Tracking)
+-- 7. User Foods / Food Journey Tracking
 CREATE TABLE IF NOT EXISTS user_foods (
     id VARCHAR(100) PRIMARY KEY,
     user_id VARCHAR(100) NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
@@ -140,7 +149,7 @@ CREATE TABLE IF NOT EXISTS user_foods (
     photo_url TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
-    CONSTRAINT uq_user_food UNIQUE(user_id, food_id) -- Prevents duplicate tracking entries
+    CONSTRAINT uq_user_food UNIQUE(user_id, food_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_foods_user ON user_foods(user_id);
@@ -182,68 +191,45 @@ CREATE TABLE IF NOT EXISTS admin_audit_logs (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON admin_audit_logs(created_at DESC);
+
 -- ====================================================================
 -- ROW LEVEL SECURITY (RLS) POLICIES
 -- ====================================================================
 
+-- A. Public Read-Only Reference Tables
+-- Anyone can view divisions, districts, categories, published foods, reviews, and achievements.
+-- Direct PostgREST mutations (INSERT/UPDATE/DELETE) are blocked.
+
+ALTER TABLE divisions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public can view divisions" ON divisions;
+CREATE POLICY "Public can view divisions" ON divisions FOR SELECT USING (true);
+
+ALTER TABLE districts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public can view districts" ON districts;
+CREATE POLICY "Public can view districts" ON districts FOR SELECT USING (true);
+
+ALTER TABLE food_categories ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public can view food categories" ON food_categories;
+CREATE POLICY "Public can view food categories" ON food_categories FOR SELECT USING (true);
+
+ALTER TABLE foods ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public can view published foods" ON foods;
+CREATE POLICY "Public can view published foods" ON foods FOR SELECT USING (is_published = true);
+
+ALTER TABLE food_reviews ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public can view food reviews" ON food_reviews;
+CREATE POLICY "Public can view food reviews" ON food_reviews FOR SELECT USING (true);
+
+ALTER TABLE achievements ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public can view achievements" ON achievements;
+CREATE POLICY "Public can view achievements" ON achievements FOR SELECT USING (true);
+
+-- B. Sensitive Application Data Tables
+-- RLS is enabled with NO permissive policies for PostgREST roles (anon, authenticated).
+-- Direct PostgREST access is completely blocked to protect password hashes, salts,
+-- and private user journey tracking. All interactions MUST go through the Express API backend.
+
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_foods ENABLE ROW LEVEL SECURITY;
-ALTER TABLE food_reviews ENABLE ROW LEVEL SECURITY;
 ALTER TABLE admin_audit_logs ENABLE ROW LEVEL SECURITY;
-
--- Note on Authentication Model:
--- Foodie BD uses server-side HMAC-SHA256 JWT authentication with application-managed
--- user IDs (e.g. 'user_xxxxxxxx' or 'user_admin_01') stored in VARCHAR(100) columns.
--- Primary access control is enforced in Express middleware (requireAuth, requireAdmin)
--- connecting via PostgreSQL pool. These RLS policies provide type-safe defense-in-depth
--- for direct Supabase PostgREST access using (auth.uid())::text.
-
--- Profiles: Public can view basic info; users can only update their own profile
-DROP POLICY IF EXISTS "Public profiles are viewable by everyone" ON profiles;
-CREATE POLICY "Public profiles are viewable by everyone" 
-ON profiles FOR SELECT USING (true);
-
-DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
-CREATE POLICY "Users can update own profile" 
-ON profiles FOR UPDATE USING ((auth.uid())::text = id);
-
-DROP POLICY IF EXISTS "Users can insert own profile" ON profiles;
-CREATE POLICY "Users can insert own profile" 
-ON profiles FOR INSERT WITH CHECK ((auth.uid())::text = id);
-
-
--- User Foods: Users can only select, insert, update, or delete their own tracking records
-DROP POLICY IF EXISTS "Users can view own tracking records" ON user_foods;
-CREATE POLICY "Users can view own tracking records" 
-ON user_foods FOR SELECT USING ((auth.uid())::text = user_id);
-
-DROP POLICY IF EXISTS "Users can insert own tracking records" ON user_foods;
-CREATE POLICY "Users can insert own tracking records" 
-ON user_foods FOR INSERT WITH CHECK ((auth.uid())::text = user_id);
-
-DROP POLICY IF EXISTS "Users can update own tracking records" ON user_foods;
-CREATE POLICY "Users can update own tracking records" 
-ON user_foods FOR UPDATE USING ((auth.uid())::text = user_id);
-
-DROP POLICY IF EXISTS "Users can delete own tracking records" ON user_foods;
-CREATE POLICY "Users can delete own tracking records" 
-ON user_foods FOR DELETE USING ((auth.uid())::text = user_id);
-
--- Reviews: Everyone can read reviews; users can insert their own reviews
-DROP POLICY IF EXISTS "Reviews viewable by everyone" ON food_reviews;
-CREATE POLICY "Reviews viewable by everyone" 
-ON food_reviews FOR SELECT USING (true);
-
-DROP POLICY IF EXISTS "Users can write reviews" ON food_reviews;
-CREATE POLICY "Users can write reviews" 
-ON food_reviews FOR INSERT WITH CHECK ((auth.uid())::text = user_id);
-
--- Audit logs: Only administrators can read audit logs
-DROP POLICY IF EXISTS "Admins can view audit logs" ON admin_audit_logs;
-CREATE POLICY "Admins can view audit logs" 
-ON admin_audit_logs FOR SELECT USING (
-    EXISTS (
-        SELECT 1 FROM profiles 
-        WHERE profiles.id = (auth.uid())::text AND profiles.role = 'admin'
-    )
-);

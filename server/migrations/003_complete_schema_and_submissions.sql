@@ -1,11 +1,28 @@
 -- ====================================================================
 -- Foodie BD (খাদক ম্যাপ) Schema Migration 003
 -- Target: PostgreSQL / Supabase
--- Description: Complete schema addition for food submissions, reports,
---              community attributions, and resilient ID typing.
+-- Description: Community food submissions, content moderation reports,
+--              attribution metadata, and defense-in-depth RLS.
+-- ====================================================================
+--
+-- ARCHITECTURE & SECURITY NOTICE:
+-- Foodie BD uses application-managed JWT authentication with custom user IDs
+-- (e.g. 'user_admin_01', 'user_...').
+--
+-- 1. All submissions, approval workflows, user reports, and moderation actions
+--    are fully validated, authenticated, and authorized in the Express backend
+--    (server/routes.ts) using requireAuth and requireAdmin middleware.
+--
+-- 2. Direct browser / PostgREST queries are completely blocked on food_submissions
+--    and reports by enabling Row Level Security (RLS) with no public policies.
+--    This prevents unauthorized viewing, tampering, or forging of submissions
+--    and moderation records outside the Express API application layer.
+--
+-- 3. The backend connects via DATABASE_URL using pg.Pool as the database owner,
+--    which safely bypasses RLS to perform authorized operations.
 -- ====================================================================
 
--- 1. Ensure enum for submission status
+-- 1. Enums for Submissions and Reports (Safe & Idempotent)
 DO $$ BEGIN
     CREATE TYPE submission_status AS ENUM ('pending', 'approved', 'rejected');
 EXCEPTION
@@ -85,68 +102,8 @@ CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status);
 CREATE INDEX IF NOT EXISTS idx_reports_reporter ON reports(reporter_user_id);
 
 -- 5. Row-Level Security (RLS) Policies for Submissions & Reports
+-- Enabled with NO permissive policies for unauthenticated or PostgREST roles.
+-- Direct PostgREST access is blocked. All submissions, reviews, and moderation
+-- operations must be processed through the Express API backend.
 ALTER TABLE food_submissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reports ENABLE ROW LEVEL SECURITY;
-
--- Submissions Policies:
--- Submitters can view their own submissions; admins can view all submissions
-DROP POLICY IF EXISTS "Users can view own submissions" ON food_submissions;
-CREATE POLICY "Users can view own submissions"
-ON food_submissions FOR SELECT USING (
-    user_id = (auth.uid())::text OR 
-    EXISTS (SELECT 1 FROM profiles WHERE profiles.id = (auth.uid())::text AND profiles.role = 'admin')
-);
-
--- Users can insert their own submissions
-DROP POLICY IF EXISTS "Users can insert own submissions" ON food_submissions;
-CREATE POLICY "Users can insert own submissions"
-ON food_submissions FOR INSERT WITH CHECK (
-    user_id = (auth.uid())::text
-);
-
--- Users can update own pending submissions; admins can review/update any submission
-DROP POLICY IF EXISTS "Users can update own pending submissions" ON food_submissions;
-CREATE POLICY "Users can update own pending submissions"
-ON food_submissions FOR UPDATE USING (
-    (user_id = (auth.uid())::text AND status = 'pending') OR
-    EXISTS (SELECT 1 FROM profiles WHERE profiles.id = (auth.uid())::text AND profiles.role = 'admin')
-);
-
--- Users can delete own pending submissions; admins can delete any submission
-DROP POLICY IF EXISTS "Users can delete own pending submissions" ON food_submissions;
-CREATE POLICY "Users can delete own pending submissions"
-ON food_submissions FOR DELETE USING (
-    (user_id = (auth.uid())::text AND status = 'pending') OR
-    EXISTS (SELECT 1 FROM profiles WHERE profiles.id = (auth.uid())::text AND profiles.role = 'admin')
-);
-
--- Reports Policies:
--- Reporters can view their own reports; admins can view all moderation reports
-DROP POLICY IF EXISTS "Users can view own reports" ON reports;
-CREATE POLICY "Users can view own reports"
-ON reports FOR SELECT USING (
-    reporter_user_id = (auth.uid())::text OR
-    EXISTS (SELECT 1 FROM profiles WHERE profiles.id = (auth.uid())::text AND profiles.role = 'admin')
-);
-
--- Authenticated users can submit moderation reports
-DROP POLICY IF EXISTS "Users can insert reports" ON reports;
-CREATE POLICY "Users can insert reports"
-ON reports FOR INSERT WITH CHECK (
-    reporter_user_id = (auth.uid())::text
-);
-
--- Only admins can review and update report status (e.g. reviewed, dismissed)
-DROP POLICY IF EXISTS "Admins can update reports" ON reports;
-CREATE POLICY "Admins can update reports"
-ON reports FOR UPDATE USING (
-    EXISTS (SELECT 1 FROM profiles WHERE profiles.id = (auth.uid())::text AND profiles.role = 'admin')
-);
-
--- Only admins can delete reports
-DROP POLICY IF EXISTS "Admins can delete reports" ON reports;
-CREATE POLICY "Admins can delete reports"
-ON reports FOR DELETE USING (
-    EXISTS (SELECT 1 FROM profiles WHERE profiles.id = (auth.uid())::text AND profiles.role = 'admin')
-);
-
