@@ -28,8 +28,12 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
 export const DEFAULT_STORAGE_BUCKET = 'food-images';
 
 // Ensure local uploads directory exists for caching/fallback
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+try {
+  if (!fs.existsSync(UPLOADS_DIR)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  }
+} catch {
+  // In serverless environments (e.g. Vercel) the filesystem is read-only outside /tmp
 }
 
 /**

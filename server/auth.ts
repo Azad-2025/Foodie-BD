@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { db, DbUser } from './db';
+import { dal } from './dal';
 
 export const DISALLOWED_PRODUCTION_SECRETS = [
   'foodie-bd-sha256-super-secret-key-2026',
@@ -126,7 +127,7 @@ export function requireAuth(req: AuthenticatedRequest, res: Response, next: Next
   next();
 }
 
-export function requireAdmin(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
+export async function requireAdmin(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   if (!req.user) {
     res.status(401).json({ error: 'Authentication required. Please log in.' });
     return;
@@ -137,10 +138,14 @@ export function requireAdmin(req: AuthenticatedRequest, res: Response, next: Nex
     return;
   }
 
-  // Double-check against active database record to ensure role has not been revoked or user deleted
-  const schema = db.getSchema();
-  const activeUser = schema.users.find((u) => u.id === req.user?.userId);
-  if (!activeUser || activeUser.role !== 'admin') {
+  // Double-check against active database record via DAL to ensure role has not been revoked
+  try {
+    const activeUser = await dal.getUserById(req.user.userId);
+    if (!activeUser || activeUser.role !== 'admin') {
+      res.status(403).json({ error: 'Access denied. Administrator privileges required.' });
+      return;
+    }
+  } catch {
     res.status(403).json({ error: 'Access denied. Administrator privileges required.' });
     return;
   }

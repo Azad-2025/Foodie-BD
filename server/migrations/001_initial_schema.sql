@@ -101,6 +101,11 @@ CREATE TABLE IF NOT EXISTS foods (
     approved_by_user_name VARCHAR(150),
     approved_at TIMESTAMPTZ,
     verification_status VARCHAR(50) DEFAULT 'admin_created',
+    research_status VARCHAR(50),
+    citation_sources TEXT[] DEFAULT '{}',
+    image_caption TEXT,
+    image_attribution TEXT,
+    image_verified BOOLEAN DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );

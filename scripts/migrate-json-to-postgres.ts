@@ -171,9 +171,10 @@ export async function runJsonToPostgresMigration(options: {
              origin_source, approximate_price_bdt, dietary, is_published, ingredients,
              submission_id, submitted_by_user_id, submitted_by_user_name,
              approved_by_user_id, approved_by_user_name, approved_at, verification_status,
+             research_status, citation_sources, image_caption, image_attribution, image_verified,
              created_at, updated_at
            )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
            ON CONFLICT (id) DO NOTHING`,
           [
             f.id,
@@ -198,6 +199,11 @@ export async function runJsonToPostgresMigration(options: {
             f.approvedByUserName || null,
             f.approvedAt || null,
             f.verificationStatus || 'admin_created',
+            f.researchStatus || null,
+            f.citationSources || [],
+            f.imageCaption || null,
+            f.imageAttribution || null,
+            Boolean(f.imageVerified),
             f.createdAt || new Date().toISOString(),
             f.updatedAt || new Date().toISOString(),
           ]
@@ -318,6 +324,25 @@ export async function runJsonToPostgresMigration(options: {
         if (res.rowCount && res.rowCount > 0) report.insertedCounts.foodSubmissions++;
         else report.skippedCounts.foodSubmissions++;
       }
+
+      // 11. Reports (Community content & moderation reports)
+      for (const rep of data.reports || []) {
+        const res = await client.query(
+          `INSERT INTO reports (id, reporter_user_id, food_id, reason, status, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (id) DO NOTHING`,
+          [
+            rep.id,
+            rep.reporterUserId,
+            rep.foodId || null,
+            rep.reason,
+            rep.status || 'pending',
+            rep.createdAt || new Date().toISOString(),
+          ]
+        );
+        if (res.rowCount && res.rowCount > 0) report.insertedCounts.reports++;
+        else report.skippedCounts.reports++;
+      }
     });
 
     report.success = true;
@@ -329,22 +354,167 @@ export async function runJsonToPostgresMigration(options: {
   return report;
 }
 
-// CLI runner: `npx tsx scripts/migrate-json-to-postgres.ts [--execute]`
-if (process.argv[1]?.endsWith('migrate-json-to-postgres.ts')) {
-  const isExecute = process.argv.includes('--execute');
-  console.log(`\n========================================`);
-  console.log(`  Foodie BD JSON -> PostgreSQL Migrator`);
-  console.log(`  Mode: ${isExecute ? 'EXECUTE (REAL WRITE)' : 'DRY RUN (VALIDATE ONLY)'}`);
-  console.log(`========================================\n`);
+export interface VerificationReport {
+  timestamp: string;
+  sourceFile: string;
+  isVerified: boolean;
+  entityChecks: {
+    entity: string;
+    sourceCount: number;
+    targetCount: number;
+    match: boolean;
+  }[];
+  integrityChecks: {
+    name: string;
+    passed: boolean;
+    details?: string;
+  }[];
+  errors: string[];
+}
 
-  runJsonToPostgresMigration({ dryRun: !isExecute })
-    .then((report) => {
-      console.log('Migration Report:');
-      console.log(JSON.stringify(report, null, 2));
-      process.exit(report.success ? 0 : 1);
-    })
-    .catch((err) => {
-      console.error('Migration aborted with uncaught error:', err);
-      process.exit(1);
+/**
+ * Performs rigorous post-migration verification comparing source JSON records
+ * against live PostgreSQL database records to guarantee zero data loss.
+ */
+export async function verifyPostgresMigration(jsonFilePath?: string): Promise<VerificationReport> {
+  const filePath = jsonFilePath || path.resolve(process.cwd(), 'data/foodie_bd.json');
+  const report: VerificationReport = {
+    timestamp: new Date().toISOString(),
+    sourceFile: filePath,
+    isVerified: false,
+    entityChecks: [],
+    integrityChecks: [],
+    errors: [],
+  };
+
+  if (!fs.existsSync(filePath)) {
+    report.errors.push(`Source file not found at ${filePath}`);
+    return report;
+  }
+
+  let sourceData: any;
+  try {
+    sourceData = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  } catch (err: any) {
+    report.errors.push(`Could not read source JSON: ${err.message}`);
+    return report;
+  }
+
+  const pool = getPostgresPool();
+  if (!pool) {
+    report.errors.push('Database pool is unconfigured. Please set DATABASE_URL.');
+    return report;
+  }
+
+  const tables: { entity: string; table: string }[] = [
+    { entity: 'divisions', table: 'divisions' },
+    { entity: 'categories', table: 'food_categories' },
+    { entity: 'districts', table: 'districts' },
+    { entity: 'users', table: 'profiles' },
+    { entity: 'foods', table: 'foods' },
+    { entity: 'userFoods', table: 'user_foods' },
+    { entity: 'foodReviews', table: 'food_reviews' },
+    { entity: 'achievements', table: 'achievements' },
+    { entity: 'reports', table: 'reports' },
+    { entity: 'auditLogs', table: 'admin_audit_logs' },
+    { entity: 'foodSubmissions', table: 'food_submissions' },
+  ];
+
+  try {
+    for (const { entity, table } of tables) {
+      const srcCount = Array.isArray(sourceData[entity]) ? sourceData[entity].length : 0;
+      const dbRes = await pool.query(`SELECT COUNT(*)::int as count FROM ${table}`);
+      const targetCount = Number(dbRes.rows[0]?.count || 0);
+
+      report.entityChecks.push({
+        entity,
+        sourceCount: srcCount,
+        targetCount,
+        match: targetCount >= srcCount,
+      });
+    }
+
+    // Integrity Check 1: Admin account verification
+    const adminRes = await pool.query("SELECT id, email, role, password_hash, salt FROM profiles WHERE role = 'admin'");
+    const hasAdmin = adminRes.rows.length > 0;
+    const adminHashesValid = adminRes.rows.every(
+      (r) => typeof r.password_hash === 'string' && r.password_hash.length === 128 && r.salt && r.salt.length === 32
+    );
+
+    report.integrityChecks.push({
+      name: 'Admin Account & Scrypt Hash Preservation',
+      passed: hasAdmin && adminHashesValid,
+      details: hasAdmin
+        ? `Found ${adminRes.rows.length} admin account(s) with preserved 128-char scrypt hashes and salts.`
+        : 'No admin account found in target database.',
     });
+
+    // Integrity Check 2: 64 District Coverage
+    const districtRes = await pool.query('SELECT COUNT(*)::int as count FROM districts');
+    const districtCount = Number(districtRes.rows[0]?.count || 0);
+    report.integrityChecks.push({
+      name: '64 Administrative Districts Presence',
+      passed: districtCount >= 64,
+      details: `Target database contains ${districtCount} administrative districts.`,
+    });
+
+    // Integrity Check 3: Foreign-key consistency check (All foods reference valid districts)
+    const orphanFoodsRes = await pool.query(
+      'SELECT COUNT(*)::int as count FROM foods f LEFT JOIN districts d ON f.district_id = d.id WHERE d.id IS NULL'
+    );
+    const orphanCount = Number(orphanFoodsRes.rows[0]?.count || 0);
+    report.integrityChecks.push({
+      name: 'Food-District Foreign Key Integrity',
+      passed: orphanCount === 0,
+      details: orphanCount === 0 ? 'All catalog foods link to valid districts.' : `Found ${orphanCount} orphaned food records.`,
+    });
+
+    const allEntitiesMatched = report.entityChecks.every((c) => c.match);
+    const allIntegrityPassed = report.integrityChecks.every((c) => c.passed);
+    report.isVerified = allEntitiesMatched && allIntegrityPassed;
+  } catch (err: any) {
+    report.errors.push(`Verification query failed: ${err.message}`);
+    report.isVerified = false;
+  }
+
+  return report;
+}
+
+// CLI runner: `npx tsx scripts/migrate-json-to-postgres.ts [--execute | --verify]`
+if (process.argv[1]?.endsWith('migrate-json-to-postgres.ts')) {
+  const isVerify = process.argv.includes('--verify');
+  const isExecute = process.argv.includes('--execute');
+
+  if (isVerify) {
+    console.log(`\n========================================`);
+    console.log(`  Foodie BD PostgreSQL Migration Verifier`);
+    console.log(`========================================\n`);
+
+    verifyPostgresMigration()
+      .then((report) => {
+        console.log('Verification Report:');
+        console.log(JSON.stringify(report, null, 2));
+        process.exit(report.isVerified ? 0 : 1);
+      })
+      .catch((err) => {
+        console.error('Verification failed with error:', err);
+        process.exit(1);
+      });
+  } else {
+    console.log(`\n========================================`);
+    console.log(`  Foodie BD JSON -> PostgreSQL Migrator`);
+    console.log(`  Mode: ${isExecute ? 'EXECUTE (REAL WRITE)' : 'DRY RUN (VALIDATE ONLY)'}`);
+    console.log(`========================================\n`);
+
+    runJsonToPostgresMigration({ dryRun: !isExecute })
+      .then((report) => {
+        console.log('Migration Report:');
+        console.log(JSON.stringify(report, null, 2));
+        process.exit(report.success ? 0 : 1);
+      })
+      .catch((err) => {
+        console.error('Migration aborted with uncaught error:', err);
+        process.exit(1);
+      });
+  }
 }

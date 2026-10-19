@@ -1,7 +1,8 @@
 import { Router, Response } from 'express';
 import crypto from 'crypto';
 import multer from 'multer';
-import { db, createPasswordRecord, verifyPassword, DbUser } from './db';
+import { createPasswordRecord, verifyPassword, DbUser } from './db';
+import { dal } from './dal';
 import {
   generateToken,
   authenticate,
@@ -9,12 +10,12 @@ import {
   requireAdmin,
   AuthenticatedRequest,
 } from './auth';
-import { Food, FoodSubmission, UserFoodTracking, FoodReview, UserProfile, PlatformStats } from '../src/types';
+import { Food, FoodSubmission, UserFoodTracking, FoodReview, PlatformStats } from '../src/types';
 import { imageStorage, validateImageBuffer } from './storage';
-import { isValidFoodImageReference } from '../src/lib/imageUrlHelper';
+import { isValidFoodImageReference, normalizeFoodImageReference } from '../src/lib/imageUrlHelper';
 import { testPostgresConnection } from './postgres';
 
-export { isValidFoodImageReference };
+export { isValidFoodImageReference, normalizeFoodImageReference };
 
 export const apiRouter = Router();
 
@@ -73,7 +74,6 @@ apiRouter.post('/upload/image', requireAuth, (req: AuthenticatedRequest, res: Re
 
     const currentUser = req.user!;
     const { context, targetId } = req.body || {};
-    const schema = db.getSchema();
 
     // If context is 'food', only administrators can upload or replace catalog images
     if (context === 'food' && currentUser.role !== 'admin') {
@@ -85,7 +85,7 @@ apiRouter.post('/upload/image', requireAuth, (req: AuthenticatedRequest, res: Re
 
     // If targetId is provided for a submission, enforce ownership
     if (targetId && context === 'submission') {
-      const submission = schema.foodSubmissions?.find((s) => s.id === targetId);
+      const submission = await dal.getSubmissionById(targetId);
       if (submission) {
         if (currentUser.role !== 'admin' && submission.userId !== currentUser.userId) {
           res.status(403).json({
@@ -118,8 +118,8 @@ apiRouter.post('/upload/image', requireAuth, (req: AuthenticatedRequest, res: Re
         currentUser.userId
       );
 
-      const dbUser = schema.users.find((u) => u.id === currentUser.userId);
-      db.logAudit({
+      const dbUser = await dal.getUserById(currentUser.userId);
+      await dal.logAudit({
         action: 'IMAGE_UPLOADED',
         entityType: 'IMAGE',
         entityId: meta.fileName,
@@ -153,18 +153,19 @@ apiRouter.delete('/upload/image/:filename', requireAuth, async (req: Authenticat
     return;
   }
 
-  const schema = db.getSchema();
   const fileTarget = `/api/images/${fileName}`;
 
   // Safety check: is it referenced by any catalog food?
-  const isUsedInFoods = schema.foods.some((f) => f.imageUrl === fileTarget || f.imageUrl?.endsWith(fileName));
+  const allFoods = await dal.getFoods({ includeDrafts: true });
+  const isUsedInFoods = allFoods.some((f) => f.imageUrl === fileTarget || f.imageUrl?.endsWith(fileName));
   if (isUsedInFoods && req.user?.role !== 'admin') {
     res.status(403).json({ error: 'Cannot delete image in use by catalog food.' });
     return;
   }
 
   // Is it referenced by another user's submission?
-  const usedInSub = schema.foodSubmissions?.find((s) => s.imageUrl === fileTarget || s.imageUrl?.endsWith(fileName));
+  const allSubmissions = await dal.getSubmissions();
+  const usedInSub = allSubmissions.find((s) => s.imageUrl === fileTarget || s.imageUrl?.endsWith(fileName));
   if (usedInSub && req.user?.role !== 'admin' && usedInSub.userId !== req.user?.userId) {
     res.status(403).json({ error: 'Cannot delete image attached to another user\'s submission.' });
     return;
@@ -176,8 +177,8 @@ apiRouter.delete('/upload/image/:filename', requireAuth, async (req: Authenticat
     return;
   }
 
-  const dbUser = schema.users.find((u) => u.id === req.user!.userId);
-  db.logAudit({
+  const dbUser = await dal.getUserById(req.user!.userId);
+  await dal.logAudit({
     action: 'IMAGE_DELETED',
     entityType: 'IMAGE',
     entityId: fileName,
@@ -192,7 +193,7 @@ apiRouter.delete('/upload/image/:filename', requireAuth, async (req: Authenticat
 // ==================== AUTHENTICATION ====================
 
 // POST /api/auth/register
-apiRouter.post('/auth/register', (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/auth/register', async (req: AuthenticatedRequest, res: Response) => {
   const { name, email, password, homeDistrictId } = req.body;
 
   if (!name || typeof name !== 'string' || name.trim().length < 2) {
@@ -211,9 +212,8 @@ apiRouter.post('/auth/register', (req: AuthenticatedRequest, res: Response) => {
   }
 
   const normalizedEmail = email.trim().toLowerCase();
-  const schema = db.getSchema();
 
-  const existing = schema.users.find((u) => u.email.toLowerCase() === normalizedEmail);
+  const existing = await dal.getUserByEmail(normalizedEmail);
   if (existing) {
     res.status(409).json({ error: 'An account with this email address already exists.' });
     return;
@@ -233,25 +233,24 @@ apiRouter.post('/auth/register', (req: AuthenticatedRequest, res: Response) => {
     createdAt: new Date().toISOString(),
   };
 
-  schema.users.push(newUser);
-  db.save();
+  const createdUser = await dal.createUser(newUser);
 
-  db.logAudit({
+  await dal.logAudit({
     action: 'USER_REGISTERED',
     entityType: 'USER',
-    entityId: newUser.id,
-    userId: newUser.id,
-    userName: newUser.name,
-    details: `User registered with email ${newUser.email}`,
+    entityId: createdUser.id,
+    userId: createdUser.id,
+    userName: createdUser.name,
+    details: `User registered with email ${createdUser.email}`,
   });
 
-  const token = generateToken(newUser);
-  const { passwordHash, salt: s, ...profile } = newUser;
+  const token = generateToken(createdUser);
+  const { passwordHash, salt: s, ...profile } = createdUser;
   res.status(201).json({ token, user: profile });
 });
 
 // POST /api/auth/login
-apiRouter.post('/auth/login', (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/auth/login', async (req: AuthenticatedRequest, res: Response) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
@@ -260,8 +259,7 @@ apiRouter.post('/auth/login', (req: AuthenticatedRequest, res: Response) => {
   }
 
   const normalizedEmail = String(email).trim().toLowerCase();
-  const schema = db.getSchema();
-  const user = schema.users.find((u) => u.email.toLowerCase() === normalizedEmail);
+  const user = await dal.getUserByEmail(normalizedEmail);
 
   if (!user || !verifyPassword(password, user.passwordHash, user.salt)) {
     res.status(401).json({ error: 'Invalid email or password.' });
@@ -274,9 +272,8 @@ apiRouter.post('/auth/login', (req: AuthenticatedRequest, res: Response) => {
 });
 
 // GET /api/auth/me
-apiRouter.get('/auth/me', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-  const schema = db.getSchema();
-  const user = schema.users.find((u) => u.id === req.user?.userId);
+apiRouter.get('/auth/me', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const user = await dal.getUserById(req.user!.userId);
   if (!user) {
     res.status(404).json({ error: 'User profile not found.' });
     return;
@@ -287,30 +284,26 @@ apiRouter.get('/auth/me', requireAuth, (req: AuthenticatedRequest, res: Response
 });
 
 // PATCH /api/auth/profile
-apiRouter.patch('/auth/profile', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+apiRouter.patch('/auth/profile', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const { name, avatarUrl, homeDistrictId, bio } = req.body;
-  const schema = db.getSchema();
-  const user = schema.users.find((u) => u.id === req.user?.userId);
-  if (!user) {
-    res.status(404).json({ error: 'User not found.' });
-    return;
+
+  try {
+    const updated = await dal.updateUserProfile(req.user!.userId, {
+      name: typeof name === 'string' ? name.trim() : undefined,
+      avatarUrl: typeof avatarUrl === 'string' ? avatarUrl : undefined,
+      homeDistrictId: typeof homeDistrictId === 'string' ? homeDistrictId : undefined,
+      bio: typeof bio === 'string' ? bio.trim() : undefined,
+    });
+    res.json({ user: updated });
+  } catch (err: any) {
+    res.status(404).json({ error: err.message || 'User not found.' });
   }
-
-  if (name && typeof name === 'string') user.name = name.trim();
-  if (avatarUrl && typeof avatarUrl === 'string') user.avatarUrl = avatarUrl;
-  if (homeDistrictId && typeof homeDistrictId === 'string') user.homeDistrictId = homeDistrictId;
-  if (typeof bio === 'string') user.bio = bio.trim();
-
-  db.save();
-
-  const { passwordHash, salt, ...profile } = user;
-  res.json({ user: profile });
 });
 
 // ==================== PASSWORD MANAGEMENT & AUTHENTICATED CHANGE ====================
 
 // Handler for authenticated password change
-function handleAuthenticatedPasswordChange(req: AuthenticatedRequest, res: Response): void {
+async function handleAuthenticatedPasswordChange(req: AuthenticatedRequest, res: Response): Promise<void> {
   if (!req.user) {
     res.status(401).json({
       error: 'Authentication required. Self-service unauthenticated password reset is disabled for security.',
@@ -334,8 +327,7 @@ function handleAuthenticatedPasswordChange(req: AuthenticatedRequest, res: Respo
     return;
   }
 
-  const schema = db.getSchema();
-  const user = schema.users.find((u) => u.id === req.user?.userId);
+  const user = await dal.getUserById(req.user.userId);
   if (!user) {
     res.status(404).json({ error: 'User account not found.' });
     return;
@@ -349,12 +341,10 @@ function handleAuthenticatedPasswordChange(req: AuthenticatedRequest, res: Respo
 
   // Update password for authenticated user only (strictly ignores any client-supplied email or userId)
   const { hash, salt } = createPasswordRecord(newPassword);
-  user.passwordHash = hash;
-  user.salt = salt;
-  db.save();
+  await dal.updateUserPassword(user.id, hash, salt);
 
   // Audit log without recording passwords or sensitive credentials
-  db.logAudit({
+  await dal.logAudit({
     action: 'PASSWORD_CHANGED',
     entityType: 'USER',
     entityId: user.id,
@@ -370,7 +360,11 @@ function handleAuthenticatedPasswordChange(req: AuthenticatedRequest, res: Respo
 }
 
 // POST /api/auth/change-password - Authenticated password change
-apiRouter.post('/auth/change-password', requireAuth, handleAuthenticatedPasswordChange);
+apiRouter.post('/auth/change-password', requireAuth, (req, res) => {
+  handleAuthenticatedPasswordChange(req, res).catch((err) => {
+    res.status(500).json({ error: err.message || 'Internal server error.' });
+  });
+});
 
 // POST /api/auth/reset-password - Rejects unauthenticated resets, accepts only authenticated password changes
 apiRouter.post('/auth/reset-password', (req: AuthenticatedRequest, res: Response) => {
@@ -380,49 +374,36 @@ apiRouter.post('/auth/reset-password', (req: AuthenticatedRequest, res: Response
     });
     return;
   }
-  handleAuthenticatedPasswordChange(req, res);
+  handleAuthenticatedPasswordChange(req, res).catch((err) => {
+    res.status(500).json({ error: err.message || 'Internal server error.' });
+  });
 });
 
 // ==================== DIVISIONS & DISTRICTS ====================
 
 // GET /api/divisions
-apiRouter.get('/divisions', (_req: AuthenticatedRequest, res: Response) => {
-  const schema = db.getSchema();
-  res.json(schema.divisions);
+apiRouter.get('/divisions', async (_req: AuthenticatedRequest, res: Response) => {
+  const divisions = await dal.getDivisions();
+  res.json(divisions);
 });
 
 // GET /api/districts
-apiRouter.get('/districts', (_req: AuthenticatedRequest, res: Response) => {
-  const schema = db.getSchema();
-  // Augment with foods count
-  const foodCounts: Record<string, number> = {};
-  schema.foods.forEach((f) => {
-    if (f.isPublished) {
-      foodCounts[f.districtId] = (foodCounts[f.districtId] || 0) + 1;
-    }
-  });
-
-  const districtsWithStats = schema.districts.map((d) => ({
-    ...d,
-    foodsCount: foodCounts[d.id] || 0,
-  }));
-
-  res.json(districtsWithStats);
+apiRouter.get('/districts', async (_req: AuthenticatedRequest, res: Response) => {
+  const districts = await dal.getDistricts();
+  res.json(districts);
 });
 
 // GET /api/districts/:id
-apiRouter.get('/districts/:id', (req: AuthenticatedRequest, res: Response) => {
-  const schema = db.getSchema();
-  const district = schema.districts.find((d) => d.id === req.params.id);
+apiRouter.get('/districts/:id', async (req: AuthenticatedRequest, res: Response) => {
+  const district = await dal.getDistrictById(req.params.id);
   if (!district) {
     res.status(404).json({ error: 'District not found.' });
     return;
   }
 
-  const districtFoods = schema.foods.filter(
-    (f) => f.districtId === district.id && f.isPublished
-  );
-  const division = schema.divisions.find((d) => d.id === district.divisionId);
+  const divisions = await dal.getDivisions();
+  const division = divisions.find((d) => d.id === district.divisionId);
+  const districtFoods = await dal.getFoods({ districtId: district.id });
 
   res.json({
     district,
@@ -432,63 +413,41 @@ apiRouter.get('/districts/:id', (req: AuthenticatedRequest, res: Response) => {
 });
 
 // GET /api/categories
-apiRouter.get('/categories', (_req: AuthenticatedRequest, res: Response) => {
-  const schema = db.getSchema();
-  res.json(schema.categories);
+apiRouter.get('/categories', async (_req: AuthenticatedRequest, res: Response) => {
+  const categories = await dal.getCategories();
+  res.json(categories);
 });
 
 // ==================== FOODS ====================
 
 // GET /api/foods
-apiRouter.get('/foods', (req: AuthenticatedRequest, res: Response) => {
+apiRouter.get('/foods', async (req: AuthenticatedRequest, res: Response) => {
   const { division, district, category, search, dietary } = req.query;
-  const schema = db.getSchema();
 
-  let foods = schema.foods.filter((f) => f.isPublished);
-
-  if (division && typeof division === 'string' && division !== 'all') {
-    foods = foods.filter((f) => f.divisionId === division);
-  }
-
-  if (district && typeof district === 'string' && district !== 'all') {
-    foods = foods.filter((f) => f.districtId === district);
-  }
-
-  if (category && typeof category === 'string' && category !== 'all') {
-    foods = foods.filter((f) => f.category === category);
-  }
-
-  if (dietary && typeof dietary === 'string' && dietary !== 'all') {
-    foods = foods.filter((f) => f.dietaryType === dietary);
-  }
-
-  if (search && typeof search === 'string' && search.trim()) {
-    const q = search.trim().toLowerCase();
-    foods = foods.filter(
-      (f) =>
-        f.nameEn.toLowerCase().includes(q) ||
-        f.nameBn.includes(q) ||
-        f.shortDescription.toLowerCase().includes(q) ||
-        f.detailedDescription.toLowerCase().includes(q) ||
-        (f.originHistory && f.originHistory.toLowerCase().includes(q))
-    );
-  }
+  const foods = await dal.getFoods({
+    divisionId: division && division !== 'all' ? String(division) : undefined,
+    districtId: district && district !== 'all' ? String(district) : undefined,
+    category: category && category !== 'all' ? String(category) : undefined,
+    dietary: dietary && dietary !== 'all' ? String(dietary) : undefined,
+    search: search ? String(search) : undefined,
+    includeDrafts: false,
+  });
 
   res.json(foods);
 });
 
 // GET /api/foods/:id
-apiRouter.get('/foods/:id', (req: AuthenticatedRequest, res: Response) => {
-  const schema = db.getSchema();
-  const food = schema.foods.find((f) => f.id === req.params.id);
+apiRouter.get('/foods/:id', async (req: AuthenticatedRequest, res: Response) => {
+  const food = await dal.getFoodById(req.params.id);
   if (!food || (!food.isPublished && req.user?.role !== 'admin')) {
     res.status(404).json({ error: 'Food delicacy not found.' });
     return;
   }
 
-  const district = schema.districts.find((d) => d.id === food.districtId);
-  const division = schema.divisions.find((d) => d.id === food.divisionId);
-  const reviews = schema.foodReviews.filter((r) => r.foodId === food.id);
+  const district = await dal.getDistrictById(food.districtId);
+  const divisions = await dal.getDivisions();
+  const division = divisions.find((d) => d.id === food.divisionId);
+  const reviews = await dal.getReviews(food.id);
 
   res.json({
     food,
@@ -499,7 +458,7 @@ apiRouter.get('/foods/:id', (req: AuthenticatedRequest, res: Response) => {
 });
 
 // POST /api/foods (Admin only)
-apiRouter.post('/foods', requireAdmin, (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/foods', requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const {
     nameEn,
     nameBn,
@@ -534,38 +493,37 @@ apiRouter.post('/foods', requireAdmin, (req: AuthenticatedRequest, res: Response
     return;
   }
 
-  const schema = db.getSchema();
-  const district = schema.districts.find((d) => d.id === districtId.trim());
+  const district = await dal.getDistrictById(districtId.trim());
   if (!district) {
     res.status(400).json({ error: 'Invalid district ID.' });
     return;
   }
 
-  // Division consistency validation: if divisionId is supplied, verify it matches the district's actual division
+  // Division consistency validation
   const effectiveDivisionId = district.divisionId;
   if (divisionId && divisionId !== effectiveDivisionId) {
-    const specifiedDiv = schema.divisions.find((dv) => dv.id === divisionId);
-    if (!specifiedDiv || district.divisionId !== divisionId) {
-      res.status(400).json({
-        error: `District "${district.nameEn}" belongs to division "${district.divisionId}", not "${divisionId}".`,
-      });
-      return;
-    }
+    res.status(400).json({
+      error: `District "${district.nameEn}" belongs to division "${district.divisionId}", not "${divisionId}".`,
+    });
+    return;
   }
 
   // Image URL validation (must be valid http/https URL or application-managed image path if provided)
   const trimmedImageUrl = typeof imageUrl === 'string' ? imageUrl.trim() : '';
+  let finalImageUrl = '';
   if (trimmedImageUrl) {
     if (!isValidFoodImageReference(trimmedImageUrl)) {
       res.status(400).json({ error: 'Invalid food image URL format.' });
       return;
     }
+    finalImageUrl = normalizeFoodImageReference(trimmedImageUrl);
   }
 
   // Duplicate food check: prevent adding duplicate food with identical English name or Bengali name in the same district
   const cleanEn = nameEn.trim().toLowerCase();
   const cleanBn = nameBn.trim();
-  const isDuplicate = schema.foods.some(
+  const districtFoods = await dal.getFoods({ districtId: district.id, includeDrafts: true });
+  const isDuplicate = districtFoods.some(
     (f) =>
       f.districtId === district.id &&
       (f.nameEn.toLowerCase() === cleanEn || f.nameBn.trim() === cleanBn)
@@ -598,7 +556,7 @@ apiRouter.post('/foods', requireAdmin, (req: AuthenticatedRequest, res: Response
     category: effectiveCategory as any,
     districtId: district.id,
     divisionId: effectiveDivisionId,
-    imageUrl: trimmedImageUrl || '',
+    imageUrl: finalImageUrl || '',
     originHistory: (originHistory || '').trim(),
     originSource: (originSource || '').trim(),
     isPublished: isPublished !== false,
@@ -609,31 +567,28 @@ apiRouter.post('/foods', requireAdmin, (req: AuthenticatedRequest, res: Response
     updatedAt: new Date().toISOString(),
   };
 
-  schema.foods.unshift(newFood);
-  db.save();
+  const createdFood = await dal.createFood(newFood);
 
-  db.logAudit({
+  await dal.logAudit({
     action: 'CREATE_FOOD',
     entityType: 'FOOD',
-    entityId: newFood.id,
+    entityId: createdFood.id,
     userId: req.user!.userId,
     userName: req.user!.email,
-    details: `Added new food: ${newFood.nameEn} (${newFood.nameBn}) in ${district.nameEn} [${newFood.isPublished ? 'Published' : 'Draft'}]`,
+    details: `Added new food: ${createdFood.nameEn} (${createdFood.nameBn}) in ${district.nameEn} [${createdFood.isPublished ? 'Published' : 'Draft'}]`,
   });
 
-  res.status(201).json(newFood);
+  res.status(201).json(createdFood);
 });
 
 // PUT /api/foods/:id (Admin only)
-apiRouter.put('/foods/:id', requireAdmin, (req: AuthenticatedRequest, res: Response) => {
-  const schema = db.getSchema();
-  const foodIndex = schema.foods.findIndex((f) => f.id === req.params.id);
-  if (foodIndex === -1) {
+apiRouter.put('/foods/:id', requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const existing = await dal.getFoodById(req.params.id);
+  if (!existing) {
     res.status(404).json({ error: 'Food not found.' });
     return;
   }
 
-  const existing = schema.foods[foodIndex];
   const {
     nameEn,
     nameBn,
@@ -665,7 +620,7 @@ apiRouter.put('/foods/:id', requireAdmin, (req: AuthenticatedRequest, res: Respo
   let effectiveDivisionId = existing.divisionId;
 
   if (districtId) {
-    const district = schema.districts.find((d) => d.id === districtId.trim());
+    const district = await dal.getDistrictById(districtId.trim());
     if (!district) {
       res.status(400).json({ error: 'Invalid district ID.' });
       return;
@@ -682,6 +637,7 @@ apiRouter.put('/foods/:id', requireAdmin, (req: AuthenticatedRequest, res: Respo
   }
 
   // Validate image URL if provided
+  let normalizedUpdatedImageUrl: string | undefined = undefined;
   if (imageUrl !== undefined && typeof imageUrl === 'string') {
     const trimmedImageUrl = imageUrl.trim();
     if (trimmedImageUrl) {
@@ -689,13 +645,17 @@ apiRouter.put('/foods/:id', requireAdmin, (req: AuthenticatedRequest, res: Respo
         res.status(400).json({ error: 'Invalid food image URL format.' });
         return;
       }
+      normalizedUpdatedImageUrl = normalizeFoodImageReference(trimmedImageUrl);
+    } else {
+      normalizedUpdatedImageUrl = '';
     }
   }
 
   // Check duplicate conflict on rename/edit
   const finalEn = (nameEn ?? existing.nameEn).trim().toLowerCase();
   const finalBn = (nameBn ?? existing.nameBn).trim();
-  const conflict = schema.foods.some(
+  const districtFoods = await dal.getFoods({ districtId: effectiveDistrictId, includeDrafts: true });
+  const conflict = districtFoods.some(
     (f) =>
       f.id !== existing.id &&
       f.districtId === effectiveDistrictId &&
@@ -708,8 +668,7 @@ apiRouter.put('/foods/:id', requireAdmin, (req: AuthenticatedRequest, res: Respo
     return;
   }
 
-  const updated: Food = {
-    ...existing,
+  const updates: Partial<Food> = {
     ...(nameEn !== undefined ? { nameEn: nameEn.trim() } : {}),
     ...(nameBn !== undefined ? { nameBn: nameBn.trim() } : {}),
     ...(shortDescription !== undefined ? { shortDescription: shortDescription.trim() } : {}),
@@ -717,21 +676,18 @@ apiRouter.put('/foods/:id', requireAdmin, (req: AuthenticatedRequest, res: Respo
     ...(category !== undefined ? { category } : {}),
     districtId: effectiveDistrictId,
     divisionId: effectiveDivisionId,
-    ...(imageUrl !== undefined ? { imageUrl: imageUrl.trim() } : {}),
+    ...(normalizedUpdatedImageUrl !== undefined ? { imageUrl: normalizedUpdatedImageUrl } : {}),
     ...(originHistory !== undefined ? { originHistory: originHistory.trim() } : {}),
     ...(originSource !== undefined ? { originSource: originSource.trim() } : {}),
     ...(isPublished !== undefined ? { isPublished: Boolean(isPublished) } : {}),
     ...(ingredients !== undefined ? { ingredients: Array.isArray(ingredients) ? ingredients : [] } : {}),
     ...(approximatePriceBdt !== undefined ? { approximatePriceBdt: Number(approximatePriceBdt) || 0 } : {}),
     ...(dietaryType !== undefined ? { dietaryType } : {}),
-    id: existing.id,
-    updatedAt: new Date().toISOString(),
   };
 
-  schema.foods[foodIndex] = updated;
-  db.save();
+  const updated = await dal.updateFood(existing.id, updates);
 
-  db.logAudit({
+  await dal.logAudit({
     action: 'UPDATE_FOOD',
     entityType: 'FOOD',
     entityId: existing.id,
@@ -744,20 +700,17 @@ apiRouter.put('/foods/:id', requireAdmin, (req: AuthenticatedRequest, res: Respo
 });
 
 // PATCH /api/foods/:id/publish (Admin only)
-apiRouter.patch('/foods/:id/publish', requireAdmin, (req: AuthenticatedRequest, res: Response) => {
-  const schema = db.getSchema();
-  const food = schema.foods.find((f) => f.id === req.params.id);
-  if (!food) {
+apiRouter.patch('/foods/:id/publish', requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const existing = await dal.getFoodById(req.params.id);
+  if (!existing) {
     res.status(404).json({ error: 'Food not found.' });
     return;
   }
 
   const { isPublished } = req.body;
-  food.isPublished = Boolean(isPublished);
-  food.updatedAt = new Date().toISOString();
-  db.save();
+  const food = await dal.togglePublishFood(req.params.id, Boolean(isPublished));
 
-  db.logAudit({
+  await dal.logAudit({
     action: food.isPublished ? 'PUBLISH_FOOD' : 'UNPUBLISH_FOOD',
     entityType: 'FOOD',
     entityId: food.id,
@@ -770,21 +723,16 @@ apiRouter.patch('/foods/:id/publish', requireAdmin, (req: AuthenticatedRequest, 
 });
 
 // DELETE /api/foods/:id (Admin only)
-apiRouter.delete('/foods/:id', requireAdmin, (req: AuthenticatedRequest, res: Response) => {
-  const schema = db.getSchema();
-  const food = schema.foods.find((f) => f.id === req.params.id);
+apiRouter.delete('/foods/:id', requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const food = await dal.getFoodById(req.params.id);
   if (!food) {
     res.status(404).json({ error: 'Food not found.' });
     return;
   }
 
-  schema.foods = schema.foods.filter((f) => f.id !== req.params.id);
-  // Also clean up tracking records
-  schema.userFoods = schema.userFoods.filter((uf) => uf.foodId !== req.params.id);
-  schema.foodReviews = schema.foodReviews.filter((r) => r.foodId !== req.params.id);
-  db.save();
+  await dal.deleteFood(req.params.id);
 
-  db.logAudit({
+  await dal.logAudit({
     action: 'DELETE_FOOD',
     entityType: 'FOOD',
     entityId: food.id,
@@ -799,7 +747,7 @@ apiRouter.delete('/foods/:id', requireAdmin, (req: AuthenticatedRequest, res: Re
 // ==================== COMMUNITY FOOD SUBMISSIONS & ADMIN APPROVAL ====================
 
 // POST /api/submissions (or /api/food-submissions) - Submit food suggestion (Authenticated User)
-const handleCreateSubmission = (req: AuthenticatedRequest, res: Response): void => {
+const handleCreateSubmission = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const {
     nameEn,
     nameBn,
@@ -832,12 +780,7 @@ const handleCreateSubmission = (req: AuthenticatedRequest, res: Response): void 
     return;
   }
 
-  const schema = db.getSchema();
-  if (!schema.foodSubmissions) {
-    schema.foodSubmissions = [];
-  }
-
-  const district = schema.districts.find((d) => d.id === districtId.trim());
+  const district = await dal.getDistrictById(districtId.trim());
   if (!district) {
     res.status(400).json({ error: 'Invalid district ID selected.' });
     return;
@@ -857,23 +800,27 @@ const handleCreateSubmission = (req: AuthenticatedRequest, res: Response): void 
 
   // Image URL validation if provided
   const trimmedImageUrl = typeof imageUrl === 'string' ? imageUrl.trim() : '';
+  let finalSubmissionImageUrl = '';
   if (trimmedImageUrl) {
     if (!isValidFoodImageReference(trimmedImageUrl)) {
       res.status(400).json({ error: 'Invalid food image URL format.' });
       return;
     }
+    finalSubmissionImageUrl = normalizeFoodImageReference(trimmedImageUrl);
   }
 
   // Duplicate food check: warn and allow review
   const cleanEn = nameEn.trim().toLowerCase();
   const cleanBn = nameBn.trim();
-  const existingCatalogMatch = schema.foods.find(
+  const catalogFoods = await dal.getFoods({ districtId: district.id, includeDrafts: true });
+  const existingCatalogMatch = catalogFoods.find(
     (f) =>
       f.districtId === district.id &&
       (f.nameEn.toLowerCase() === cleanEn || f.nameBn.trim() === cleanBn)
   );
 
-  const existingPendingMatch = schema.foodSubmissions.find(
+  const pendingSubmissions = await dal.getSubmissions({ districtId: district.id, status: 'pending' });
+  const existingPendingMatch = pendingSubmissions.find(
     (s) =>
       s.status === 'pending' &&
       s.districtId === district.id &&
@@ -903,7 +850,7 @@ const handleCreateSubmission = (req: AuthenticatedRequest, res: Response): void 
   const effectiveCategory = validCategories.includes(category) ? category : 'traditional';
 
   // Submitter public name snapshot
-  const submitterUser = schema.users.find((u) => u.id === req.user!.userId);
+  const submitterUser = await dal.getUserById(req.user!.userId);
   const submitterName = submitterUser?.name || req.user!.email.split('@')[0];
 
   const newSubmission: FoodSubmission = {
@@ -915,7 +862,7 @@ const handleCreateSubmission = (req: AuthenticatedRequest, res: Response): void 
     category: effectiveCategory as any,
     districtId: district.id,
     divisionId: district.divisionId,
-    imageUrl: trimmedImageUrl || '',
+    imageUrl: finalSubmissionImageUrl || '',
     originHistory: (originHistory || '').trim(),
     originSource: (originSource || '').trim(),
     approximatePriceBdt: Number(approximatePriceBdt) || 0,
@@ -930,46 +877,41 @@ const handleCreateSubmission = (req: AuthenticatedRequest, res: Response): void 
     editHistory: [],
   };
 
-  schema.foodSubmissions.unshift(newSubmission);
-  db.save();
+  const created = await dal.createSubmission(newSubmission);
 
-  db.logAudit({
+  await dal.logAudit({
     action: 'FOOD_SUBMITTED',
     entityType: 'FOOD_SUBMISSION',
-    entityId: newSubmission.id,
+    entityId: created.id,
     userId: req.user!.userId,
     userName: submitterName,
-    details: `User submitted food suggestion: ${newSubmission.nameEn} (${newSubmission.nameBn}) for district ${district.nameEn} [Status: Pending]`,
+    details: `User submitted food suggestion: ${created.nameEn} (${created.nameBn}) for district ${district.nameEn} [Status: Pending]`,
   });
 
   res.status(201).json({
     success: true,
     message: 'Your regional food suggestion has been submitted successfully for verification!',
-    referenceId: newSubmission.id,
-    submission: newSubmission,
+    referenceId: created.id,
+    submission: created,
   });
 };
 
-apiRouter.post('/submissions', requireAuth, handleCreateSubmission);
-apiRouter.post('/food-submissions', requireAuth, handleCreateSubmission);
+apiRouter.post('/submissions', requireAuth, (req, res) => {
+  handleCreateSubmission(req, res).catch((err) => res.status(500).json({ error: err.message || 'Submission failed.' }));
+});
+apiRouter.post('/food-submissions', requireAuth, (req, res) => {
+  handleCreateSubmission(req, res).catch((err) => res.status(500).json({ error: err.message || 'Submission failed.' }));
+});
 
 // GET /api/user/submissions - Get authenticated user's food contributions
-apiRouter.get('/user/submissions', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-  const schema = db.getSchema();
-  if (!schema.foodSubmissions) {
-    schema.foodSubmissions = [];
-  }
-  const userSubmissions = schema.foodSubmissions.filter((s) => s.userId === req.user!.userId);
+apiRouter.get('/user/submissions', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const userSubmissions = await dal.getSubmissions({ userId: req.user!.userId });
   res.json(userSubmissions);
 });
 
 // GET /api/user/submissions/:id - Get specific submission by ID (owner or admin)
-apiRouter.get('/user/submissions/:id', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-  const schema = db.getSchema();
-  if (!schema.foodSubmissions) {
-    schema.foodSubmissions = [];
-  }
-  const submission = schema.foodSubmissions.find((s) => s.id === req.params.id);
+apiRouter.get('/user/submissions/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const submission = await dal.getSubmissionById(req.params.id);
   if (!submission) {
     res.status(404).json({ error: 'Food submission not found.' });
     return;
@@ -985,18 +927,12 @@ apiRouter.get('/user/submissions/:id', requireAuth, (req: AuthenticatedRequest, 
 });
 
 // PUT /api/user/submissions/:id - Edit pending submission (owner only)
-apiRouter.put('/user/submissions/:id', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-  const schema = db.getSchema();
-  if (!schema.foodSubmissions) {
-    schema.foodSubmissions = [];
-  }
-  const subIndex = schema.foodSubmissions.findIndex((s) => s.id === req.params.id);
-  if (subIndex === -1) {
+apiRouter.put('/user/submissions/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const submission = await dal.getSubmissionById(req.params.id);
+  if (!submission) {
     res.status(404).json({ error: 'Food submission not found.' });
     return;
   }
-
-  const submission = schema.foodSubmissions[subIndex];
 
   // Security: only owner can edit their submission
   if (submission.userId !== req.user!.userId && req.user!.role !== 'admin') {
@@ -1036,73 +972,77 @@ apiRouter.put('/user/submissions/:id', requireAuth, (req: AuthenticatedRequest, 
     return;
   }
 
+  let finalDistrictId = submission.districtId;
+  let finalDivisionId = submission.divisionId;
   if (districtId) {
-    const district = schema.districts.find((d) => d.id === districtId.trim());
+    const district = await dal.getDistrictById(districtId.trim());
     if (!district) {
       res.status(400).json({ error: 'Invalid district ID.' });
       return;
     }
-    submission.districtId = district.id;
-    submission.divisionId = district.divisionId;
+    finalDistrictId = district.id;
+    finalDivisionId = district.divisionId;
   }
 
-  if (nameEn !== undefined) submission.nameEn = nameEn.trim();
-  if (nameBn !== undefined) submission.nameBn = nameBn.trim();
-  if (shortDescription !== undefined) submission.shortDescription = shortDescription.trim();
-  if (detailedDescription !== undefined) submission.detailedDescription = detailedDescription.trim();
-  if (category !== undefined) submission.category = category;
+  let normalizedSubImageUrl: string | undefined = undefined;
   if (imageUrl !== undefined) {
     const trimmedImageUrl = typeof imageUrl === 'string' ? imageUrl.trim() : '';
-    if (trimmedImageUrl && !isValidFoodImageReference(trimmedImageUrl)) {
-      res.status(400).json({ error: 'Invalid food image URL format.' });
-      return;
+    if (trimmedImageUrl) {
+      if (!isValidFoodImageReference(trimmedImageUrl)) {
+        res.status(400).json({ error: 'Invalid food image URL format.' });
+        return;
+      }
+      normalizedSubImageUrl = normalizeFoodImageReference(trimmedImageUrl);
+    } else {
+      normalizedSubImageUrl = '';
     }
-    submission.imageUrl = trimmedImageUrl;
   }
-  if (originHistory !== undefined) submission.originHistory = originHistory.trim();
-  if (originSource !== undefined) submission.originSource = originSource.trim();
-  if (approximatePriceBdt !== undefined) submission.approximatePriceBdt = Number(approximatePriceBdt) || 0;
-  if (dietaryType !== undefined) submission.dietaryType = dietaryType;
-  if (Array.isArray(ingredients)) submission.ingredients = ingredients;
 
-  submission.editHistory = submission.editHistory || [];
-  submission.editHistory.push({
+  const editHistory = submission.editHistory || [];
+  editHistory.push({
     editedAt: new Date().toISOString(),
     summary: req.user!.role === 'admin' ? 'Administrator updated details' : 'User updated submission details',
   });
-  submission.updatedAt = new Date().toISOString();
 
-  db.save();
+  const updates: Partial<FoodSubmission> = {
+    districtId: finalDistrictId,
+    divisionId: finalDivisionId,
+    ...(nameEn !== undefined ? { nameEn: nameEn.trim() } : {}),
+    ...(nameBn !== undefined ? { nameBn: nameBn.trim() } : {}),
+    ...(shortDescription !== undefined ? { shortDescription: shortDescription.trim() } : {}),
+    ...(detailedDescription !== undefined ? { detailedDescription: detailedDescription.trim() } : {}),
+    ...(category !== undefined ? { category } : {}),
+    ...(normalizedSubImageUrl !== undefined ? { imageUrl: normalizedSubImageUrl } : {}),
+    ...(originHistory !== undefined ? { originHistory: originHistory.trim() } : {}),
+    ...(originSource !== undefined ? { originSource: originSource.trim() } : {}),
+    ...(approximatePriceBdt !== undefined ? { approximatePriceBdt: Number(approximatePriceBdt) || 0 } : {}),
+    ...(dietaryType !== undefined ? { dietaryType } : {}),
+    ...(Array.isArray(ingredients) ? { ingredients } : {}),
+    editHistory,
+  };
 
-  db.logAudit({
+  const updated = await dal.updateSubmission(submission.id, updates);
+
+  await dal.logAudit({
     action: 'FOOD_SUBMISSION_EDITED',
     entityType: 'FOOD_SUBMISSION',
-    entityId: submission.id,
+    entityId: updated.id,
     userId: req.user!.userId,
     userName: req.user!.email,
-    details: `Updated food submission: ${submission.nameEn} (${submission.nameBn})`,
+    details: `Updated food submission: ${updated.nameEn} (${updated.nameBn})`,
   });
 
-  res.json(submission);
+  res.json(updated);
 });
 
 // GET /api/admin/submissions - Admin list all food requests with filtering and duplicate analysis
-apiRouter.get('/admin/submissions', requireAdmin, (req: AuthenticatedRequest, res: Response) => {
+apiRouter.get('/admin/submissions', requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const { status, search, district, division } = req.query;
-  const schema = db.getSchema();
-  if (!schema.foodSubmissions) {
-    schema.foodSubmissions = [];
-  }
 
-  let list = [...schema.foodSubmissions];
-
-  if (status && typeof status === 'string' && status !== 'all') {
-    list = list.filter((s) => s.status === status);
-  }
-
-  if (district && typeof district === 'string' && district !== 'all') {
-    list = list.filter((s) => s.districtId === district);
-  }
+  let list = await dal.getSubmissions({
+    status: status && status !== 'all' ? String(status) : undefined,
+    districtId: district && district !== 'all' ? String(district) : undefined,
+  });
 
   if (division && typeof division === 'string' && division !== 'all') {
     list = list.filter((s) => s.divisionId === division);
@@ -1120,10 +1060,11 @@ apiRouter.get('/admin/submissions', requireAdmin, (req: AuthenticatedRequest, re
   }
 
   // Attach potential catalog duplicate info to aid the reviewing admin
+  const allFoods = await dal.getFoods({ includeDrafts: true });
   const enriched = list.map((sub) => {
     const cleanEn = sub.nameEn.toLowerCase().trim();
     const cleanBn = sub.nameBn.trim();
-    const potentialCatalogMatch = schema.foods.find(
+    const potentialCatalogMatch = allFoods.find(
       (f) =>
         f.districtId === sub.districtId &&
         (f.nameEn.toLowerCase() === cleanEn || f.nameBn.trim() === cleanBn)
@@ -1145,13 +1086,8 @@ apiRouter.get('/admin/submissions', requireAdmin, (req: AuthenticatedRequest, re
 });
 
 // PUT /api/admin/submissions/:id/review - Review submission (Approve or Reject)
-apiRouter.put('/admin/submissions/:id/review', requireAdmin, (req: AuthenticatedRequest, res: Response) => {
-  const schema = db.getSchema();
-  if (!schema.foodSubmissions) {
-    schema.foodSubmissions = [];
-  }
-
-  const sub = schema.foodSubmissions.find((s) => s.id === req.params.id);
+apiRouter.put('/admin/submissions/:id/review', requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const sub = await dal.getSubmissionById(req.params.id);
   if (!sub) {
     res.status(404).json({ error: 'Food submission not found.' });
     return;
@@ -1168,7 +1104,7 @@ apiRouter.put('/admin/submissions/:id/review', requireAdmin, (req: Authenticated
   if (sub.status !== 'pending' && !overrideReviewed) {
     // If it's already approved, return the approved record idempotently
     if (sub.status === 'approved' && sub.approvedFoodId) {
-      const existingApprovedFood = schema.foods.find((f) => f.id === sub.approvedFoodId);
+      const existingApprovedFood = await dal.getFoodById(sub.approvedFoodId);
       res.json({
         success: true,
         message: 'Submission was already approved.',
@@ -1184,7 +1120,7 @@ apiRouter.put('/admin/submissions/:id/review', requireAdmin, (req: Authenticated
     return;
   }
 
-  const adminUser = schema.users.find((u) => u.id === req.user!.userId);
+  const adminUser = await dal.getUserById(req.user!.userId);
   const adminDisplayName = adminUser?.name || 'Foodie BD Admin';
 
   if (action === 'approve') {
@@ -1192,7 +1128,7 @@ apiRouter.put('/admin/submissions/:id/review', requireAdmin, (req: Authenticated
     const finalEn = (correctedData?.nameEn || sub.nameEn || '').trim();
     const finalBn = (correctedData?.nameBn || sub.nameBn || '').trim();
     const finalDistrictId = (correctedData?.districtId || sub.districtId || '').trim();
-    const district = schema.districts.find((d) => d.id === finalDistrictId);
+    const district = await dal.getDistrictById(finalDistrictId);
 
     if (!finalBn) {
       res.status(400).json({ error: 'Bengali food name cannot be empty for approval.' });
@@ -1207,14 +1143,14 @@ apiRouter.put('/admin/submissions/:id/review', requireAdmin, (req: Authenticated
       return;
     }
 
-    // Check if an approved food record was already generated for this submission to avoid duplicate catalog foods
-    let catalogFood = sub.approvedFoodId
-      ? schema.foods.find((f) => f.id === sub.approvedFoodId)
-      : undefined;
+    let catalogFood: Food | null = null;
+    if (sub.approvedFoodId) {
+      catalogFood = await dal.getFoodById(sub.approvedFoodId);
+    }
 
     if (!catalogFood) {
       const newFoodId = 'food_' + crypto.randomUUID().slice(0, 8);
-      catalogFood = {
+      const newFoodItem: Food = {
         id: newFoodId,
         nameEn: finalEn,
         nameBn: finalBn,
@@ -1243,29 +1179,27 @@ apiRouter.put('/admin/submissions/:id/review', requireAdmin, (req: Authenticated
         verificationStatus: 'verified',
       };
 
-      schema.foods.unshift(catalogFood);
+      catalogFood = await dal.createFood(newFoodItem);
     } else {
       // Update existing catalog food with any corrected data
-      catalogFood.nameEn = finalEn;
-      catalogFood.nameBn = finalBn;
-      catalogFood.districtId = district.id;
-      catalogFood.divisionId = district.divisionId;
-      catalogFood.isPublished = true;
-      catalogFood.updatedAt = new Date().toISOString();
+      catalogFood = await dal.updateFood(catalogFood.id, {
+        nameEn: finalEn,
+        nameBn: finalBn,
+        districtId: district.id,
+        divisionId: district.divisionId,
+        isPublished: true,
+      });
     }
 
-    // Update submission record
-    sub.status = 'approved';
-    sub.approvedFoodId = catalogFood.id;
-    sub.reviewedByUserId = req.user!.userId;
-    sub.reviewedByUserName = adminDisplayName;
-    sub.reviewedAt = new Date().toISOString();
-    sub.adminFeedback = (adminFeedback || 'Approved and published to the Foodie BD regional culinary catalog.').trim();
-    sub.updatedAt = new Date().toISOString();
+    const reviewedSub = await dal.reviewSubmission(sub.id, {
+      status: 'approved',
+      reviewedByUserId: req.user!.userId,
+      reviewedByUserName: adminDisplayName,
+      adminFeedback: (adminFeedback || 'Approved and published to the Foodie BD regional culinary catalog.').trim(),
+      approvedFoodId: catalogFood.id,
+    });
 
-    db.save();
-
-    db.logAudit({
+    await dal.logAudit({
       action: 'FOOD_SUBMISSION_APPROVED',
       entityType: 'FOOD_SUBMISSION',
       entityId: sub.id,
@@ -1277,7 +1211,7 @@ apiRouter.put('/admin/submissions/:id/review', requireAdmin, (req: Authenticated
     res.json({
       success: true,
       message: `Food submission "${sub.nameEn}" successfully approved and published!`,
-      submission: sub,
+      submission: reviewedSub,
       food: catalogFood,
     });
     return;
@@ -1289,16 +1223,14 @@ apiRouter.put('/admin/submissions/:id/review', requireAdmin, (req: Authenticated
       return;
     }
 
-    sub.status = 'rejected';
-    sub.reviewedByUserId = req.user!.userId;
-    sub.reviewedByUserName = adminDisplayName;
-    sub.reviewedAt = new Date().toISOString();
-    sub.adminFeedback = adminFeedback.trim();
-    sub.updatedAt = new Date().toISOString();
+    const reviewedSub = await dal.reviewSubmission(sub.id, {
+      status: 'rejected',
+      reviewedByUserId: req.user!.userId,
+      reviewedByUserName: adminDisplayName,
+      adminFeedback: adminFeedback.trim(),
+    });
 
-    db.save();
-
-    db.logAudit({
+    await dal.logAudit({
       action: 'FOOD_SUBMISSION_REJECTED',
       entityType: 'FOOD_SUBMISSION',
       entityId: sub.id,
@@ -1310,7 +1242,7 @@ apiRouter.put('/admin/submissions/:id/review', requireAdmin, (req: Authenticated
     res.json({
       success: true,
       message: `Food submission "${sub.nameEn}" was rejected.`,
-      submission: sub,
+      submission: reviewedSub,
     });
     return;
   }
@@ -1319,17 +1251,19 @@ apiRouter.put('/admin/submissions/:id/review', requireAdmin, (req: Authenticated
 // ==================== USER JOURNEY & TRACKING ====================
 
 // GET /api/user/journey
-apiRouter.get('/user/journey', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+apiRouter.get('/user/journey', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const userId = req.user!.userId;
-  const schema = db.getSchema();
+  const userTrackings = await dal.getUserFoods(userId);
 
-  const userTrackings = schema.userFoods.filter((uf) => uf.userId === userId);
+  const allFoods = await dal.getFoods({ includeDrafts: true });
+  const allDistricts = await dal.getDistricts();
+  const allDivisions = await dal.getDivisions();
 
   // Join with food details
   const joined = userTrackings.map((t) => {
-    const food = schema.foods.find((f) => f.id === t.foodId);
-    const district = food ? schema.districts.find((d) => d.id === food.districtId) : undefined;
-    const division = food ? schema.divisions.find((d) => d.id === food.divisionId) : undefined;
+    const food = allFoods.find((f) => f.id === t.foodId);
+    const district = food ? allDistricts.find((d) => d.id === food.districtId) : undefined;
+    const division = food ? allDivisions.find((d) => d.id === food.divisionId) : undefined;
     return {
       ...t,
       food,
@@ -1342,7 +1276,7 @@ apiRouter.get('/user/journey', requireAuth, (req: AuthenticatedRequest, res: Res
 });
 
 // POST /api/user/journey (Track food: tried or want_to_try)
-apiRouter.post('/user/journey', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/user/journey', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const userId = req.user!.userId;
   const { foodId, status, triedAt, rating, notes, photoUrl } = req.body;
 
@@ -1351,71 +1285,46 @@ apiRouter.post('/user/journey', requireAuth, (req: AuthenticatedRequest, res: Re
     return;
   }
 
-  const schema = db.getSchema();
-  const food = schema.foods.find((f) => f.id === foodId);
+  const food = await dal.getFoodById(foodId);
   if (!food) {
     res.status(404).json({ error: 'Food record not found.' });
     return;
   }
 
-  let tracking = schema.userFoods.find((uf) => uf.userId === userId && uf.foodId === foodId);
+  const tracking: UserFoodTracking = {
+    id: 'uf_' + crypto.randomUUID().slice(0, 8),
+    userId,
+    foodId,
+    status,
+    triedAt: status === 'tried' ? (triedAt || new Date().toISOString()) : undefined,
+    rating: rating ? Number(rating) : undefined,
+    notes: notes ? String(notes) : undefined,
+    photoUrl: photoUrl ? String(photoUrl) : undefined,
+    updatedAt: new Date().toISOString(),
+  };
 
-  if (tracking) {
-    // Update existing
-    tracking.status = status;
-    if (status === 'tried') {
-      tracking.triedAt = triedAt || tracking.triedAt || new Date().toISOString();
-      if (rating !== undefined) tracking.rating = Number(rating);
-      if (notes !== undefined) tracking.notes = String(notes);
-      if (photoUrl !== undefined) tracking.photoUrl = String(photoUrl);
-    }
-    tracking.updatedAt = new Date().toISOString();
-  } else {
-    // Create new
-    tracking = {
-      id: 'uf_' + crypto.randomUUID().slice(0, 8),
-      userId,
-      foodId,
-      status,
-      triedAt: status === 'tried' ? (triedAt || new Date().toISOString()) : undefined,
-      rating: rating ? Number(rating) : undefined,
-      notes: notes ? String(notes) : undefined,
-      photoUrl: photoUrl ? String(photoUrl) : undefined,
-      updatedAt: new Date().toISOString(),
-    };
-    schema.userFoods.push(tracking);
-  }
-
-  db.save();
-  res.json(tracking);
+  const saved = await dal.upsertUserFood(tracking);
+  res.json(saved);
 });
 
 // DELETE /api/user/journey/:foodId
-apiRouter.delete('/user/journey/:foodId', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+apiRouter.delete('/user/journey/:foodId', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const userId = req.user!.userId;
   const { foodId } = req.params;
-  const schema = db.getSchema();
 
-  const initialCount = schema.userFoods.length;
-  schema.userFoods = schema.userFoods.filter(
-    (uf) => !(uf.userId === userId && uf.foodId === foodId)
-  );
-
-  if (schema.userFoods.length < initialCount) {
-    db.save();
-  }
-
+  await dal.deleteUserFood(userId, foodId);
   res.json({ success: true, message: 'Removed from journey.' });
 });
 
 // GET /api/user/achievements
-apiRouter.get('/user/achievements', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+apiRouter.get('/user/achievements', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const userId = req.user!.userId;
-  const schema = db.getSchema();
+  const userTrackings = await dal.getUserFoods(userId);
+  const triedTrackings = userTrackings.filter((uf) => uf.status === 'tried');
 
-  const userTrackings = schema.userFoods.filter((uf) => uf.userId === userId && uf.status === 'tried');
-  const triedFoods = userTrackings
-    .map((t) => schema.foods.find((f) => f.id === t.foodId))
+  const allFoods = await dal.getFoods({ includeDrafts: true });
+  const triedFoods = triedTrackings
+    .map((t) => allFoods.find((f) => f.id === t.foodId))
     .filter((f): f is Food => !!f);
 
   const totalTried = triedFoods.length;
@@ -1427,7 +1336,8 @@ apiRouter.get('/user/achievements', requireAuth, (req: AuthenticatedRequest, res
     ['food_ctg_kala_bhuna', 'food_khulna_chui_jhal', 'food_coxsbazar_shutki', 'food_rangpur_shidol'].includes(f.id)
   ).length;
 
-  const evaluated = schema.achievements.map((ach) => {
+  const achievements = await dal.getAchievements();
+  const evaluated = achievements.map((ach) => {
     let currentVal = 0;
     if (ach.id === 'first_bite') currentVal = totalTried;
     else if (ach.id === 'sweet_tooth') currentVal = sweetsCount;
@@ -1451,21 +1361,14 @@ apiRouter.get('/user/achievements', requireAuth, (req: AuthenticatedRequest, res
 // ==================== REVIEWS ====================
 
 // GET /api/reviews?foodId=...
-apiRouter.get('/reviews', (req: AuthenticatedRequest, res: Response) => {
+apiRouter.get('/reviews', async (req: AuthenticatedRequest, res: Response) => {
   const { foodId } = req.query;
-  const schema = db.getSchema();
-
-  if (foodId && typeof foodId === 'string') {
-    const reviews = schema.foodReviews.filter((r) => r.foodId === foodId);
-    res.json(reviews);
-    return;
-  }
-
-  res.json(schema.foodReviews);
+  const reviews = await dal.getReviews(foodId ? String(foodId) : undefined);
+  res.json(reviews);
 });
 
 // POST /api/reviews
-apiRouter.post('/reviews', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/reviews', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const userId = req.user!.userId;
   const { foodId, rating, comment } = req.body;
 
@@ -1474,9 +1377,8 @@ apiRouter.post('/reviews', requireAuth, (req: AuthenticatedRequest, res: Respons
     return;
   }
 
-  const schema = db.getSchema();
-  const user = schema.users.find((u) => u.id === userId);
-  const food = schema.foods.find((f) => f.id === foodId);
+  const user = await dal.getUserById(userId);
+  const food = await dal.getFoodById(foodId);
 
   if (!user || !food) {
     res.status(404).json({ error: 'User or food item not found.' });
@@ -1494,122 +1396,123 @@ apiRouter.post('/reviews', requireAuth, (req: AuthenticatedRequest, res: Respons
     createdAt: new Date().toISOString(),
   };
 
-  schema.foodReviews.unshift(review);
-  db.save();
-
-  res.status(201).json(review);
+  const created = await dal.createReview(review);
+  res.status(201).json(created);
 });
 
 // DELETE /api/reviews/:id (Admin only)
-apiRouter.delete('/reviews/:id', requireAdmin, (req: AuthenticatedRequest, res: Response) => {
-  const schema = db.getSchema();
-  const initial = schema.foodReviews.length;
-  schema.foodReviews = schema.foodReviews.filter((r) => r.id !== req.params.id);
+apiRouter.delete('/reviews/:id', requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  await dal.deleteReview(req.params.id);
 
-  if (schema.foodReviews.length < initial) {
-    db.save();
-    db.logAudit({
-      action: 'DELETE_REVIEW',
-      entityType: 'REVIEW',
-      entityId: req.params.id,
-      userId: req.user!.userId,
-      userName: req.user!.email,
-      details: `Moderated and removed review ID: ${req.params.id}`,
-    });
-  }
+  await dal.logAudit({
+    action: 'DELETE_REVIEW',
+    entityType: 'REVIEW',
+    entityId: req.params.id,
+    userId: req.user!.userId,
+    userName: req.user!.email,
+    details: `Moderated and removed review ID: ${req.params.id}`,
+  });
 
   res.json({ success: true, message: 'Review removed by moderator.' });
+});
+
+// ==================== REPORTS & MODERATION ====================
+
+// POST /api/reports - Authenticated report submission
+apiRouter.post('/reports', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const { foodId, reason } = req.body;
+  if (!reason || typeof reason !== 'string' || reason.trim().length < 5) {
+    res.status(400).json({ error: 'Please provide a descriptive reason for reporting (minimum 5 characters).' });
+    return;
+  }
+
+  const report = await dal.createReport({
+    id: 'rep_' + crypto.randomUUID().slice(0, 8),
+    reporterUserId: req.user!.userId,
+    foodId: foodId ? String(foodId) : undefined,
+    reason: reason.trim(),
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  });
+
+  res.status(201).json({ success: true, message: 'Report submitted successfully.', report });
+});
+
+// GET /api/admin/reports - Admin review of reports
+apiRouter.get('/admin/reports', requireAdmin, async (_req: AuthenticatedRequest, res: Response) => {
+  const reports = await dal.getReports();
+  res.json(reports);
+});
+
+// PATCH /api/admin/reports/:id - Admin moderation of report status
+apiRouter.patch('/admin/reports/:id', requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const { status } = req.body;
+  if (!status || !['reviewed', 'dismissed'].includes(status)) {
+    res.status(400).json({ error: 'Valid status ("reviewed" or "dismissed") is required.' });
+    return;
+  }
+
+  try {
+    const updated = await dal.updateReportStatus(req.params.id, status);
+    res.json(updated);
+  } catch (err: any) {
+    res.status(404).json({ error: err.message || 'Report not found.' });
+  }
 });
 
 // ==================== PLATFORM STATS ====================
 
 // GET /api/stats
-apiRouter.get('/stats', (_req: AuthenticatedRequest, res: Response) => {
-  const schema = db.getSchema();
-  const totalDistricts = schema.districts.length;
-  const totalDivisions = schema.divisions.length;
-  const totalFoods = schema.foods.filter((f) => f.isPublished).length;
-  const totalTriedByUsers = schema.userFoods.filter((u) => u.status === 'tried').length;
-  const activeFoodiesCount = schema.users.length;
-
-  const stats: PlatformStats = {
-    totalDistricts,
-    totalDivisions,
-    totalFoods,
-    totalTriedByUsers,
-    activeFoodiesCount,
-  };
-
+apiRouter.get('/stats', async (_req: AuthenticatedRequest, res: Response) => {
+  const stats = await dal.getPlatformStats();
   res.json(stats);
 });
 
 // ==================== ADMIN DASHBOARD ====================
 
 // GET /api/admin/foods (Admin only: view all foods including unpublished drafts)
-apiRouter.get('/admin/foods', requireAdmin, (req: AuthenticatedRequest, res: Response) => {
+apiRouter.get('/admin/foods', requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const { division, district, category, search, status } = req.query;
-  const schema = db.getSchema();
 
-  let foods = [...schema.foods];
+  const foods = await dal.getFoods({
+    divisionId: division && division !== 'all' ? String(division) : undefined,
+    districtId: district && district !== 'all' ? String(district) : undefined,
+    category: category && category !== 'all' ? String(category) : undefined,
+    search: search ? String(search) : undefined,
+    includeDrafts: status !== 'published',
+  });
 
+  let filtered = foods;
   if (status === 'published') {
-    foods = foods.filter((f) => f.isPublished);
+    filtered = foods.filter((f) => f.isPublished);
   } else if (status === 'draft') {
-    foods = foods.filter((f) => !f.isPublished);
+    filtered = foods.filter((f) => !f.isPublished);
   }
 
-  if (division && typeof division === 'string' && division !== 'all') {
-    foods = foods.filter((f) => f.divisionId === division);
-  }
-
-  if (district && typeof district === 'string' && district !== 'all') {
-    foods = foods.filter((f) => f.districtId === district);
-  }
-
-  if (category && typeof category === 'string' && category !== 'all') {
-    foods = foods.filter((f) => f.category === category);
-  }
-
-  if (search && typeof search === 'string' && search.trim()) {
-    const q = search.trim().toLowerCase();
-    foods = foods.filter(
-      (f) =>
-        f.nameEn.toLowerCase().includes(q) ||
-        f.nameBn.includes(q) ||
-        f.shortDescription.toLowerCase().includes(q) ||
-        f.detailedDescription.toLowerCase().includes(q) ||
-        (f.originHistory && f.originHistory.toLowerCase().includes(q))
-    );
-  }
-
-  res.json(foods);
+  res.json(filtered);
 });
 
 // GET /api/admin/overview
-apiRouter.get('/admin/overview', requireAdmin, (_req: AuthenticatedRequest, res: Response) => {
-  const schema = db.getSchema();
+apiRouter.get('/admin/overview', requireAdmin, async (_req: AuthenticatedRequest, res: Response) => {
+  const overview = await dal.getAdminOverview();
+  const recentAudits = await dal.getAuditLogs(15);
+
   res.json({
-    totalUsers: schema.users.length,
-    totalFoods: schema.foods.length,
-    publishedFoods: schema.foods.filter((f) => f.isPublished).length,
-    draftFoods: schema.foods.filter((f) => !f.isPublished).length,
-    totalReviews: schema.foodReviews.length,
-    totalTrackingEntries: schema.userFoods.length,
-    recentAudits: schema.auditLogs.slice(0, 15),
+    ...overview,
+    recentAudits,
   });
 });
 
 // GET /api/admin/users
-apiRouter.get('/admin/users', requireAdmin, (_req: AuthenticatedRequest, res: Response) => {
-  const schema = db.getSchema();
-  const sanitized = schema.users.map(({ passwordHash, salt, ...profile }) => profile);
-  res.json(sanitized);
+apiRouter.get('/admin/users', requireAdmin, async (_req: AuthenticatedRequest, res: Response) => {
+  const users = await dal.getAllUsers();
+  res.json(users);
 });
 
 // GET /api/admin/audit-logs
-apiRouter.get('/admin/audit-logs', requireAdmin, (_req: AuthenticatedRequest, res: Response) => {
-  const schema = db.getSchema();
-  res.json(schema.auditLogs);
+apiRouter.get('/admin/audit-logs', requireAdmin, async (_req: AuthenticatedRequest, res: Response) => {
+  const logs = await dal.getAuditLogs(50);
+  res.json(logs);
 });
 
 // GET /api/admin/infra-status - Safe, read-only connectivity and status ping (Admin only)
@@ -1630,14 +1533,13 @@ apiRouter.get('/admin/infra-status', requireAdmin, async (_req: AuthenticatedReq
       bucket: storageStatus.bucket,
       error: storageStatus.error,
     },
-    activeDatabase: dbStatus.isConnected ? 'postgresql' : 'local_json',
+    activeDatabase: dbStatus.isConnected ? 'postgresql' : dal.activeProvider,
   });
 });
 
 // ==================== RESEARCH-BASED CONTENT AUDIT & CATALOG ENDPOINTS ====================
 
 // GET /api/admin/research/district/:districtId
-// Returns verified research dossiers for an unrepresented or targeted district
 apiRouter.get('/admin/research/district/:districtId', requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const { districtId } = req.params;
   const { VERIFIED_DISTRICT_RESEARCH } = await import('./data/verifiedDistrictResearch');
@@ -1650,12 +1552,13 @@ apiRouter.get('/admin/research/district/:districtId', requireAdmin, async (req: 
 });
 
 // GET /api/admin/research/dossiers
-// Returns all 28 research dossiers and full 64-district coverage analysis
 apiRouter.get('/admin/research/dossiers', requireAdmin, async (_req: AuthenticatedRequest, res: Response) => {
   const { VERIFIED_DISTRICT_RESEARCH } = await import('./data/verifiedDistrictResearch');
-  const schema = db.getSchema();
+  const allFoods = await dal.getFoods({ includeDrafts: true });
+  const allDistricts = await dal.getDistricts();
+
   const districtFoodMap: Record<string, any[]> = {};
-  schema.foods.forEach((f) => {
+  allFoods.forEach((f) => {
     if (!districtFoodMap[f.districtId]) districtFoodMap[f.districtId] = [];
     districtFoodMap[f.districtId].push(f);
   });
@@ -1669,7 +1572,7 @@ apiRouter.get('/admin/research/dossiers', requireAdmin, async (_req: Authenticat
     };
   });
 
-  const totalDistricts = schema.districts.length;
+  const totalDistricts = allDistricts.length;
   const representedDistricts = Object.keys(districtFoodMap).length;
   const unrepresentedDistricts = totalDistricts - representedDistricts;
 
@@ -1683,12 +1586,18 @@ apiRouter.get('/admin/research/dossiers', requireAdmin, async (_req: Authenticat
 });
 
 // POST /api/admin/research/publish-dossier
-// Publishes a researched and verified food dossier into the live food catalog with full provenance
 apiRouter.post('/admin/research/publish-dossier', requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const { districtId, customImageUrl, customPrice } = req.body;
   if (!districtId) {
     res.status(400).json({ error: 'districtId is required.' });
     return;
+  }
+
+  if (customImageUrl) {
+    if (!isValidFoodImageReference(customImageUrl)) {
+      res.status(400).json({ error: 'Invalid food image URL format.' });
+      return;
+    }
   }
 
   const { VERIFIED_DISTRICT_RESEARCH } = await import('./data/verifiedDistrictResearch');
@@ -1698,34 +1607,32 @@ apiRouter.post('/admin/research/publish-dossier', requireAdmin, async (req: Auth
     return;
   }
 
-  const schema = db.getSchema();
-  const district = schema.districts.find((d) => d.id === districtId);
+  const district = await dal.getDistrictById(districtId);
   if (!district) {
     res.status(404).json({ error: `District "${districtId}" not found in database.` });
     return;
   }
 
-  // Generate safe unique ID
   const safeId = `food_${districtId}_${Date.now().toString(36)}`;
   const currentUser = req.user!;
-  const user = schema.users.find((u) => u.id === currentUser.userId);
+  const user = await dal.getUserById(currentUser.userId);
 
-  const newFood: any = {
+  const newFood: Food = {
     id: safeId,
     nameEn: dossier.foodNameEn,
     nameBn: dossier.foodNameBn,
     shortDescription: dossier.shortDescriptionBn,
     detailedDescription: dossier.detailedDescriptionBn,
-    category: dossier.category,
+    category: dossier.category as any,
     districtId: dossier.districtId,
     divisionId: dossier.divisionId,
-    imageUrl: customImageUrl || '/placeholder-food.jpg',
+    imageUrl: customImageUrl ? normalizeFoodImageReference(customImageUrl) : '/placeholder-food.jpg',
     originHistory: dossier.historicalContextBn,
     originSource: dossier.primarySource,
     isPublished: true,
     ingredients: dossier.ingredients,
     approximatePriceBdt: customPrice !== undefined ? Number(customPrice) : dossier.approximatePriceBdt,
-    dietaryType: dossier.dietaryType,
+    dietaryType: dossier.dietaryType as any,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     verificationStatus: 'research_verified',
@@ -1739,34 +1646,30 @@ apiRouter.post('/admin/research/publish-dossier', requireAdmin, async (req: Auth
     approvedAt: new Date().toISOString(),
   };
 
-  schema.foods.push(newFood);
-  db.save();
+  const createdFood = await dal.createFood(newFood);
 
-  db.logAudit({
+  await dal.logAudit({
     action: 'PUBLISH_RESEARCHED_FOOD',
     entityType: 'FOOD',
-    entityId: newFood.id,
+    entityId: createdFood.id,
     userId: currentUser.userId,
     userName: user?.name || 'Admin',
-    details: `Published verified food research "${newFood.nameEn}" (${newFood.nameBn}) for district ${district.nameEn}. Source: ${dossier.primarySource}.`,
+    details: `Published verified food research "${createdFood.nameEn}" (${createdFood.nameBn}) for district ${district.nameEn}. Source: ${dossier.primarySource}.`,
   });
 
   res.status(201).json({
     success: true,
     message: `Successfully published verified food record for ${district.nameEn}.`,
-    food: newFood,
+    food: createdFood,
   });
 });
 
 // ==================== SECURE INITIAL ADMIN BOOTSTRAP ====================
 // POST /api/setup/promote-admin
-// Strict server-side endpoint guarded by ADMIN_SETUP_KEY.
-// Only accessible during initial bootstrapping when NO admin accounts exist yet.
-// Once an administrator account exists, this setup endpoint is permanently locked.
-apiRouter.post('/setup/promote-admin', (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/setup/promote-admin', async (req: AuthenticatedRequest, res: Response) => {
   const configuredKey = process.env.ADMIN_SETUP_KEY;
 
-  // 1. Never allow absent or weak ADMIN_SETUP_KEY (no hardcoded fallback allowed)
+  // 1. Never allow absent or weak ADMIN_SETUP_KEY
   if (!configuredKey || typeof configuredKey !== 'string' || configuredKey.trim().length < 16) {
     res.status(503).json({
       error: 'Administrator setup endpoint is permanently disabled. Configure a secure ADMIN_SETUP_KEY (minimum 16 characters) in server environment.',
@@ -1775,15 +1678,13 @@ apiRouter.post('/setup/promote-admin', (req: AuthenticatedRequest, res: Response
   }
 
   // 2. Prevent setup endpoint abuse once initial admin bootstrap has already occurred
-  const schema = db.getSchema();
-  const existingAdmins = schema.users.filter((u) => u.role === 'admin');
+  const hasExistingAdmin = await dal.hasAdmin();
   const { email } = req.body || {};
   const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
 
-  // If administrators already exist in the database, prevent promoting any new users via setup endpoint
-  if (existingAdmins.length > 0) {
-    const isAlreadyAdmin = existingAdmins.some((a) => a.email.toLowerCase() === normalizedEmail);
-    if (!isAlreadyAdmin) {
+  if (hasExistingAdmin) {
+    const existingUser = await dal.getUserByEmail(normalizedEmail);
+    if (!existingUser || existingUser.role !== 'admin') {
       res.status(403).json({
         error: 'Forbidden: Initial administrator bootstrap has already been completed. Role modifications must be performed by an authenticated administrator via the Admin Dashboard.',
       });
@@ -1819,7 +1720,7 @@ apiRouter.post('/setup/promote-admin', (req: AuthenticatedRequest, res: Response
     return;
   }
 
-  const user = schema.users.find((u) => u.email.toLowerCase() === normalizedEmail);
+  const user = await dal.getUserByEmail(normalizedEmail);
   if (!user) {
     res.status(404).json({
       error: `Account with email "${normalizedEmail}" was not found. Please register the account first in the app.`,
@@ -1840,10 +1741,9 @@ apiRouter.post('/setup/promote-admin', (req: AuthenticatedRequest, res: Response
 
   // Promotion is only permitted if bootstrap was not completed
   const previousRole = user.role;
-  user.role = 'admin';
-  db.save();
+  const updatedProfile = await dal.updateUserRole(user.id, 'admin');
 
-  db.logAudit({
+  await dal.logAudit({
     action: 'PROMOTE_TO_ADMIN',
     entityType: 'USER',
     entityId: user.id,
@@ -1852,10 +1752,9 @@ apiRouter.post('/setup/promote-admin', (req: AuthenticatedRequest, res: Response
     details: `Account ${user.email} was promoted to administrator role via initial bootstrap setup. Previous role was ${previousRole}.`,
   });
 
-  const { passwordHash, salt, ...profile } = user;
   res.json({
     success: true,
     message: `Account "${user.email}" has been successfully promoted to the Admin role.`,
-    user: profile,
+    user: updatedProfile,
   });
 });

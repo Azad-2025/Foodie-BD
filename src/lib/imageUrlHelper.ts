@@ -13,42 +13,95 @@ export interface ImageUrlAnalysis {
 }
 
 /**
+ * Normalizes any safe food image reference into a standard browser-loadable path or URL.
+ * - Leaves absolute http:// and https:// URLs as is
+ * - Leaves /api/images/... and root-relative /... paths as is
+ * - Transforms storage paths (uploads/food_123.png, food-images/food_123.png) to /api/images/food_123.png
+ * - Transforms bare safe filenames (food_123.png) to /api/images/food_123.png
+ */
+export function normalizeFoodImageReference(rawRef: unknown): string {
+  if (typeof rawRef !== 'string') return '';
+  const trimmed = rawRef.trim();
+  if (!trimmed) return '';
+
+  // If already starts with /api/images/ or /, return trimmed
+  if (trimmed.startsWith('/')) {
+    return trimmed;
+  }
+
+  // If it is an absolute http:// or https:// URL
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+
+  // If it starts with uploads/ (relative local storage path)
+  if (trimmed.startsWith('uploads/')) {
+    const filename = trimmed.slice('uploads/'.length);
+    return `/api/images/${filename}`;
+  }
+
+  // If it starts with food-images/ (Supabase bucket path)
+  if (trimmed.startsWith('food-images/')) {
+    const filename = trimmed.slice('food-images/'.length);
+    return `/api/images/${filename}`;
+  }
+
+  // If it is a safe food image filename (e.g. food_1792...png)
+  if (/^food_[a-zA-Z0-9_\-\.]+\.(jpe?g|png|webp|gif|svg)$/i.test(trimmed)) {
+    return `/api/images/${trimmed}`;
+  }
+
+  return trimmed;
+}
+
+/**
  * Trims whitespace and normalizes the URL
  */
 export function normalizeImageUrl(url: string): string {
-  if (typeof url !== 'string') return '';
-  return url.trim();
+  return normalizeFoodImageReference(url);
 }
 
 /**
  * Validates whether a food image reference is safe and valid:
  * - Accepts valid application-managed image paths (e.g. /api/images/food_123.png, /placeholder-food.jpg)
  * - Accepts valid HTTP/HTTPS URLs (e.g. Supabase Storage, Wikimedia, CDNs)
+ * - Accepts normalized storage paths (uploads/food_..., food-images/food_..., food_...png)
+ * - Allows optional query strings (e.g. cache busters ?t=...)
  * - Strictly rejects path traversal (..), protocol-relative bypasses (//), backslashes (\),
  *   unsupported protocols (javascript:, data:, file:), malformed strings, and non-strings.
  */
 export function isValidFoodImageReference(imageRef: unknown): boolean {
   if (typeof imageRef !== 'string') return false;
-  const trimmed = imageRef.trim();
-  if (!trimmed) return false;
+  const rawTrimmed = imageRef.trim();
+  if (!rawTrimmed) return false;
+
+  // Prevent protocol-relative URLs (//evil.com), path traversal (..), and backslash evasions
+  if (rawTrimmed.startsWith('//') || rawTrimmed.includes('..') || rawTrimmed.includes('\\')) {
+    return false;
+  }
+
+  // Prevent control characters, whitespace, newlines, null bytes
+  if (/[\s\0\r\n]/.test(rawTrimmed)) {
+    return false;
+  }
+
+  // Reject dangerous pseudo-protocols
+  if (/^(javascript|data|file|vbscript|about):/i.test(rawTrimmed)) {
+    return false;
+  }
+
+  const trimmed = normalizeFoodImageReference(rawTrimmed);
 
   // 1. Application-managed internal image paths
   if (trimmed.startsWith('/')) {
-    // Prevent protocol-relative URLs (//evil.com), path traversal (..), and backslash evasions
-    if (trimmed.startsWith('//') || trimmed.includes('..') || trimmed.includes('\\')) {
-      return false;
-    }
-    // Prevent control characters or whitespace
-    if (/[\s\0\r\n]/.test(trimmed)) {
-      return false;
-    }
+    const cleanPath = trimmed.split('?')[0].split('#')[0];
     // If it is an /api/images/ path, enforce valid filename and extension
-    if (trimmed.startsWith('/api/images/')) {
-      const fileName = trimmed.slice('/api/images/'.length);
+    if (cleanPath.startsWith('/api/images/')) {
+      const fileName = cleanPath.slice('/api/images/'.length);
       return /^[a-zA-Z0-9_\-\.]+\.(jpe?g|png|webp|gif|svg)$/i.test(fileName);
     }
     // Other root-relative asset paths (e.g. /placeholder-food.jpg, /assets/...)
-    return /^\/[a-zA-Z0-9_\-\.\/]+\.(jpe?g|png|webp|gif|svg)$/i.test(trimmed);
+    return /^\/[a-zA-Z0-9_\-\.\/]+\.(jpe?g|png|webp|gif|svg)$/i.test(cleanPath);
   }
 
   // 2. Absolute HTTP/HTTPS URLs

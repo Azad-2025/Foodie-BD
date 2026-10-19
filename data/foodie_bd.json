@@ -951,7 +951,7 @@
       "category": "dessert",
       "districtId": "bogura",
       "divisionId": "rajshahi",
-      "imageUrl": "/api/images/food_1792250724074_d54e4583437bb8c7.jpg",
+      "imageUrl": "/api/images/food_1792343208194_6e800da46dc3ca46.png",
       "originHistory": "ঊনবিংশ শতাব্দীর শুরুর দিকে বগুড়ার শেরপুরের ঘোষ পরিবারের হাত ধরে বগুড়ার দইয়ের উৎপত্তি ও খ্যাতি বিস্তৃত হয়, যা পরবর্তীতে গৌড় গোপাল ঘোষের মাধ্যমে দেশজোড়া খ্যাতি অর্জন করে।",
       "originSource": "Department of Patents, Designs and Trademarks (GI Registry) & বগুড়া জেলা প্রশাসন",
       "isPublished": true,
@@ -963,7 +963,7 @@
       "approximatePriceBdt": 250,
       "dietaryType": "veg",
       "createdAt": "2026-10-13T14:49:17.022Z",
-      "updatedAt": "2026-10-18T13:57:15.008Z",
+      "updatedAt": "2026-10-19T13:31:15.455Z",
       "researchStatus": "gi_certified",
       "verificationStatus": "research_verified",
       "citationSources": [
@@ -2337,8 +2337,276 @@
       "threshold": 8
     }
   ],
-  "reports": [],
+  "reports": [
+    {
+      "id": "rep_test_1792416675459",
+      "reporterUserId": "user_admin_01",
+      "reason": "Test content review report",
+      "status": "reviewed",
+      "createdAt": "2026-10-19T13:31:15.459Z"
+    }
+  ],
   "auditLogs": [
+    {
+      "action": "TEST_AUDIT_ACTION",
+      "entityType": "TEST",
+      "entityId": "test_123",
+      "userId": "user_admin_01",
+      "userName": "Foodie BD Admin",
+      "details": "Verified DAL audit logging integration",
+      "id": "audit_1792416675462_29h7",
+      "createdAt": "2026-10-19T13:31:15.462Z"
+    },
+    {
+      "action": "USER_REGISTERED",
+      "entityType": "USER",
+      "entityId": "user_1f3203f1",
+      "userId": "user_1f3203f1",
+      "userName": "Privilege Escalation Attempt",
+      "details": "User registered with email attacker_1792416675379@example.com",
+      "id": "audit_1792416675431_28bh",
+      "createdAt": "2026-10-19T13:31:15.431Z"
+    },
+    {
+      "action": "PASSWORD_CHANGED",
+      "entityType": "USER",
+      "entityId": "user_sec_temp_01",
+      "userId": "user_sec_temp_01",
+      "userName": "Security Test User",
+      "details": "User successfully changed their account password via authenticated verification.",
+      "id": "audit_1792416675274_xlzx",
+      "createdAt": "2026-10-19T13:31:15.274Z"
+    },
+    {
+      "action": "UPDATE_FOOD",
+      "entityType": "FOOD",
+      "entityId": "food_edit_test_1792416674589",
+      "userId": "user_2bc0e8c2",
+      "userName": "mrazad0101@gmail.com",
+      "details": "Updated food: Updated Test Delicacy (হালনাগাদ পরীক্ষামূলক খাবার)",
+      "id": "audit_1792416674592_c11q",
+      "createdAt": "2026-10-19T13:31:14.592Z"
+    },
+    {
+      "action": "USER_REGISTERED",
+      "entityType": "USER",
+      "entityId": "user_6e66ecf8",
+      "userId": "user_6e66ecf8",
+      "userName": "Privilege Escalation Attempt",
+      "details": "User registered with email attacker_1792416658253@example.com",
+      "id": "audit_1792416658306_zzyu",
+      "createdAt": "2026-10-19T13:30:58.306Z"
+    },
+    {
+      "action": "PASSWORD_CHANGED",
+      "entityType": "USER",
+      "entityId": "user_sec_temp_01",
+      "userId": "user_sec_temp_01",
+      "userName": "Security Test User",
+      "details": "User successfully changed their account password via authenticated verification.",
+      "id": "audit_1792416658136_te3y",
+      "createdAt": "2026-10-19T13:30:58.136Z"
+    },
+    {
+      "action": "UPDATE_FOOD",
+      "entityType": "FOOD",
+      "entityId": "food_edit_test_1792416657519",
+      "userId": "user_2bc0e8c2",
+      "userName": "mrazad0101@gmail.com",
+      "details": "Updated food: Updated Test Delicacy (হালনাগাদ পরীক্ষামূলক খাবার)",
+      "id": "audit_1792416657522_ekm5",
+      "createdAt": "2026-10-19T13:30:57.522Z"
+    },
+    {
+      "action": "USER_REGISTERED",
+      "entityType": "USER",
+      "entityId": "user_402e7c76",
+      "userId": "user_402e7c76",
+      "userName": "Privilege Escalation Attempt",
+      "details": "User registered with email attacker_1792416607302@example.com",
+      "id": "audit_1792416607390_0ruq",
+      "createdAt": "2026-10-19T13:30:07.390Z"
+    },
+    {
+      "action": "PASSWORD_CHANGED",
+      "entityType": "USER",
+      "entityId": "user_sec_temp_01",
+      "userId": "user_sec_temp_01",
+      "userName": "Security Test User",
+      "details": "User successfully changed their account password via authenticated verification.",
+      "id": "audit_1792416607163_itur",
+      "createdAt": "2026-10-19T13:30:07.163Z"
+    },
+    {
+      "action": "UPDATE_FOOD",
+      "entityType": "FOOD",
+      "entityId": "food_edit_test_1792416606366",
+      "userId": "user_2bc0e8c2",
+      "userName": "mrazad0101@gmail.com",
+      "details": "Updated food: Updated Test Delicacy (হালনাগাদ পরীক্ষামূলক খাবার)",
+      "id": "audit_1792416606370_jk1m",
+      "createdAt": "2026-10-19T13:30:06.370Z"
+    },
+    {
+      "action": "USER_REGISTERED",
+      "entityType": "USER",
+      "entityId": "user_0061b4ac",
+      "userId": "user_0061b4ac",
+      "userName": "Privilege Escalation Attempt",
+      "details": "User registered with email attacker_1792344670654@example.com",
+      "id": "audit_1792344670706_nap4",
+      "createdAt": "2026-10-18T17:31:10.706Z"
+    },
+    {
+      "action": "PASSWORD_CHANGED",
+      "entityType": "USER",
+      "entityId": "user_sec_temp_01",
+      "userId": "user_sec_temp_01",
+      "userName": "Security Test User",
+      "details": "User successfully changed their account password via authenticated verification.",
+      "id": "audit_1792344670550_xf50",
+      "createdAt": "2026-10-18T17:31:10.550Z"
+    },
+    {
+      "action": "UPDATE_FOOD",
+      "entityType": "FOOD",
+      "entityId": "food_edit_test_1792344669884",
+      "userId": "user_2bc0e8c2",
+      "userName": "mrazad0101@gmail.com",
+      "details": "Updated food: Updated Test Delicacy (হালনাগাদ পরীক্ষামূলক খাবার)",
+      "id": "audit_1792344669887_3ehz",
+      "createdAt": "2026-10-18T17:31:09.887Z"
+    },
+    {
+      "action": "USER_REGISTERED",
+      "entityType": "USER",
+      "entityId": "user_3cb9388d",
+      "userId": "user_3cb9388d",
+      "userName": "Privilege Escalation Attempt",
+      "details": "User registered with email attacker_1792344623121@example.com",
+      "id": "audit_1792344623171_a97y",
+      "createdAt": "2026-10-18T17:30:23.171Z"
+    },
+    {
+      "action": "PASSWORD_CHANGED",
+      "entityType": "USER",
+      "entityId": "user_sec_temp_01",
+      "userId": "user_sec_temp_01",
+      "userName": "Security Test User",
+      "details": "User successfully changed their account password via authenticated verification.",
+      "id": "audit_1792344623016_i65v",
+      "createdAt": "2026-10-18T17:30:23.016Z"
+    },
+    {
+      "action": "UPDATE_FOOD",
+      "entityType": "FOOD",
+      "entityId": "food_edit_test_1792344622449",
+      "userId": "user_2bc0e8c2",
+      "userName": "mrazad0101@gmail.com",
+      "details": "Updated food: Updated Test Delicacy (হালনাগাদ পরীক্ষামূলক খাবার)",
+      "id": "audit_1792344622452_xmu1",
+      "createdAt": "2026-10-18T17:30:22.452Z"
+    },
+    {
+      "action": "USER_REGISTERED",
+      "entityType": "USER",
+      "entityId": "user_71dbd57d",
+      "userId": "user_71dbd57d",
+      "userName": "Privilege Escalation Attempt",
+      "details": "User registered with email attacker_1792344591999@example.com",
+      "id": "audit_1792344592054_tjex",
+      "createdAt": "2026-10-18T17:29:52.054Z"
+    },
+    {
+      "action": "PASSWORD_CHANGED",
+      "entityType": "USER",
+      "entityId": "user_sec_temp_01",
+      "userId": "user_sec_temp_01",
+      "userName": "Security Test User",
+      "details": "User successfully changed their account password via authenticated verification.",
+      "id": "audit_1792344591889_gvuq",
+      "createdAt": "2026-10-18T17:29:51.889Z"
+    },
+    {
+      "action": "UPDATE_FOOD",
+      "entityType": "FOOD",
+      "entityId": "food_edit_test_1792344591117",
+      "userId": "user_2bc0e8c2",
+      "userName": "mrazad0101@gmail.com",
+      "details": "Updated food: Updated Test Delicacy (হালনাগাদ পরীক্ষামূলক খাবার)",
+      "id": "audit_1792344591121_1at6",
+      "createdAt": "2026-10-18T17:29:51.121Z"
+    },
+    {
+      "action": "UPDATE_FOOD",
+      "entityType": "FOOD",
+      "entityId": "food_06bcbc0d",
+      "userId": "user_admin_01",
+      "userName": "admin@foodiebd.com",
+      "details": "Updated food: Bogura Doi (বগুড়ার দই) [Published]",
+      "id": "audit_1792343208225_ogg2",
+      "createdAt": "2026-10-18T17:06:48.225Z"
+    },
+    {
+      "action": "IMAGE_UPLOADED",
+      "entityType": "IMAGE",
+      "entityId": "food_1792343208194_6e800da46dc3ca46.png",
+      "userId": "user_admin_01",
+      "userName": "Foodie BD Admin",
+      "details": "Uploaded image food_1792343208194_6e800da46dc3ca46.png (0.0 KB, image/png)",
+      "id": "audit_1792343208196_jld9",
+      "createdAt": "2026-10-18T17:06:48.196Z"
+    },
+    {
+      "action": "USER_REGISTERED",
+      "entityType": "USER",
+      "entityId": "user_712416a3",
+      "userId": "user_712416a3",
+      "userName": "Privilege Escalation Attempt",
+      "details": "User registered with email attacker_1792343189900@example.com",
+      "id": "audit_1792343189953_xk7s",
+      "createdAt": "2026-10-18T17:06:29.953Z"
+    },
+    {
+      "action": "PASSWORD_CHANGED",
+      "entityType": "USER",
+      "entityId": "user_sec_temp_01",
+      "userId": "user_sec_temp_01",
+      "userName": "Security Test User",
+      "details": "User successfully changed their account password via authenticated verification.",
+      "id": "audit_1792343189792_nm3j",
+      "createdAt": "2026-10-18T17:06:29.792Z"
+    },
+    {
+      "action": "UPDATE_FOOD",
+      "entityType": "FOOD",
+      "entityId": "food_edit_test_1792343189092",
+      "userId": "user_2bc0e8c2",
+      "userName": "mrazad0101@gmail.com",
+      "details": "Updated food: Updated Test Delicacy (হালনাগাদ পরীক্ষামূলক খাবার)",
+      "id": "audit_1792343189095_t1jy",
+      "createdAt": "2026-10-18T17:06:29.095Z"
+    },
+    {
+      "action": "UPDATE_FOOD",
+      "entityType": "FOOD",
+      "entityId": "food_06bcbc0d",
+      "userId": "user_admin_01",
+      "userName": "admin@foodiebd.com",
+      "details": "Updated food: Bogura Doi (বগুড়ার দই) [Published]",
+      "id": "audit_1792342875480_xn6m",
+      "createdAt": "2026-10-18T17:01:15.480Z"
+    },
+    {
+      "action": "IMAGE_UPLOADED",
+      "entityType": "IMAGE",
+      "entityId": "food_1792342875448_d76866e7c3378c28.png",
+      "userId": "user_admin_01",
+      "userName": "Foodie BD Admin",
+      "details": "Uploaded image food_1792342875448_d76866e7c3378c28.png (0.0 KB, image/png)",
+      "id": "audit_1792342875450_pq9c",
+      "createdAt": "2026-10-18T17:01:15.450Z"
+    },
     {
       "action": "USER_REGISTERED",
       "entityType": "USER",

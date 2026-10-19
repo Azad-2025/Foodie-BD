@@ -16,7 +16,8 @@ import { apiRouter } from '../server/routes';
 import { imageStorage, validateImageBuffer } from '../server/storage';
 import { analyzeImageUrl } from '../src/lib/imageUrlHelper';
 import { testPostgresConnection } from '../server/postgres';
-import { runJsonToPostgresMigration } from '../scripts/migrate-json-to-postgres';
+import { runJsonToPostgresMigration, verifyPostgresMigration } from '../scripts/migrate-json-to-postgres';
+import { dal, validateDatabaseConfig, isPostgresActive } from '../server/dal';
 
 let totalTests = 0;
 let passedTests = 0;
@@ -600,7 +601,7 @@ async function runTestSuite() {
   // Test requireAdmin middleware permits the promoted user
   let adminAccessAllowed = false;
   let adminAccessDenied = false;
-  requireAdmin(
+  await requireAdmin(
     { user: decodedToken } as any,
     { status: () => ({ json: () => { adminAccessDenied = true; } }) } as any,
     () => { adminAccessAllowed = true; }
@@ -1522,7 +1523,7 @@ async function runTestSuite() {
 
   const primaryAdminToken = generateToken(primaryAdmin!);
   let primaryAdminPermitted = false;
-  requireAdmin(
+  await requireAdmin(
     { user: verifyToken(primaryAdminToken) } as any,
     { status: () => ({ json: () => {} }) } as any,
     () => { primaryAdminPermitted = true; }
@@ -1531,7 +1532,7 @@ async function runTestSuite() {
 
   const ownerAdminToken = generateToken(ownerAdmin!);
   let ownerAdminPermitted = false;
-  requireAdmin(
+  await requireAdmin(
     { user: verifyToken(ownerAdminToken) } as any,
     { status: () => ({ json: () => {} }) } as any,
     () => { ownerAdminPermitted = true; }
@@ -1690,16 +1691,24 @@ async function runTestSuite() {
   // ----------------------------------------------------
   console.log('\n▶ Test Suite 18: Food Image URL Format & Bogura Doi Save Verification Suite');
 
-  const { isValidFoodImageReference } = await import('../src/lib/imageUrlHelper');
+  const { isValidFoodImageReference, normalizeFoodImageReference } = await import('../src/lib/imageUrlHelper');
 
   // 18.1: Unit validation tests for valid formats
   assert(isValidFoodImageReference('/api/images/food_1792156447008_100f7d9709257802.png') === true, 'Accepts valid application-managed PNG reference');
   assert(isValidFoodImageReference('/api/images/food_1792156447008_100f7d9709257802.jpg') === true, 'Accepts valid application-managed JPEG reference');
   assert(isValidFoodImageReference('/api/images/food_1792156447008_100f7d9709257802.webp') === true, 'Accepts valid application-managed WebP reference');
+  assert(isValidFoodImageReference('/api/images/food_1792156447008_100f7d9709257802.png?v=123') === true, 'Accepts valid application-managed PNG reference with cache-buster query parameter');
   assert(isValidFoodImageReference('/placeholder-food.jpg') === true, 'Accepts valid root-relative static asset path');
   assert(isValidFoodImageReference('https://upload.wikimedia.org/wikipedia/commons/sample.jpg') === true, 'Accepts valid external HTTPS image URL');
   assert(isValidFoodImageReference('http://example.com/food.jpg') === true, 'Accepts valid external HTTP image URL');
   assert(isValidFoodImageReference('https://xyz.supabase.co/storage/v1/object/public/food-images/dish.png') === true, 'Accepts valid Supabase Storage public HTTPS URL');
+  assert(isValidFoodImageReference('uploads/food_1792156447008_100f7d9709257802.png') === true, 'Accepts relative storage upload path');
+  assert(isValidFoodImageReference('food-images/food_1792156447008_100f7d9709257802.png') === true, 'Accepts Supabase bucket relative storage path');
+  assert(isValidFoodImageReference('food_1792156447008_100f7d9709257802.png') === true, 'Accepts safe bare food image filename');
+
+  assert(normalizeFoodImageReference('uploads/food_123.png') === '/api/images/food_123.png', 'Normalizes uploads/ path to /api/images/');
+  assert(normalizeFoodImageReference('food-images/food_123.png') === '/api/images/food_123.png', 'Normalizes food-images/ path to /api/images/');
+  assert(normalizeFoodImageReference('food_1792156447008_100f7d9709257802.png') === '/api/images/food_1792156447008_100f7d9709257802.png', 'Normalizes safe bare filename to /api/images/');
 
   // 18.2: Unit validation tests for invalid or malicious inputs
   assert(isValidFoodImageReference('/api/images/../../etc/passwd') === false, 'Rejects directory traversal in application path');
@@ -1755,6 +1764,120 @@ async function runTestSuite() {
   const routesContent = fs.readFileSync(path.resolve(process.cwd(), 'server/routes.ts'), 'utf-8');
   assert(routesContent.includes('isValidFoodImageReference(trimmedImageUrl)'), 'server/routes.ts uses isValidFoodImageReference in food routes');
   assert(routesContent.includes("'Invalid food image URL format.'"), 'server/routes.ts retains exact error message for genuinely invalid formats');
+
+  // ----------------------------------------------------
+  // TEST SUITE 19: Unified PostgreSQL Data Access Layer & Production Safety Suite
+  // ----------------------------------------------------
+  console.log('\n▶ Test Suite 19: Unified PostgreSQL Data Access Layer & Production Safety Suite');
+
+  // 19.1: Production environment database safety check
+  const origNodeEnv = process.env.NODE_ENV;
+  const origDbUrl = process.env.DATABASE_URL;
+  try {
+    process.env.NODE_ENV = 'production';
+    delete process.env.DATABASE_URL;
+    let prodMissingDbThrew = false;
+    try {
+      validateDatabaseConfig();
+    } catch {
+      prodMissingDbThrew = true;
+    }
+    assert(prodMissingDbThrew, 'Production startup strictly refuses silent local JSON fallback when DATABASE_URL is missing');
+
+    process.env.DATABASE_URL = 'postgresql://postgres:test@db.supabase.co:5432/postgres';
+    let prodConfigPassed = false;
+    try {
+      validateDatabaseConfig();
+      prodConfigPassed = true;
+    } catch {
+      prodConfigPassed = false;
+    }
+    assert(prodConfigPassed, 'Production database configuration validates successfully with DATABASE_URL present');
+  } finally {
+    process.env.NODE_ENV = origNodeEnv;
+    if (origDbUrl !== undefined) {
+      process.env.DATABASE_URL = origDbUrl;
+    } else {
+      delete process.env.DATABASE_URL;
+    }
+  }
+
+  // 19.2: DAL Geographic & Catalog Retrieval
+  const dalDivisions = await dal.getDivisions();
+  assert(dalDivisions.length === 8, 'DAL getDivisions() returns all 8 administrative divisions');
+
+  const dalDistricts = await dal.getDistricts();
+  assert(dalDistricts.length === 64, 'DAL getDistricts() returns all 64 districts with foodsCount');
+  assert(typeof dalDistricts[0].foodsCount === 'number', 'DAL districts include computed foodsCount property');
+
+  const dalDistrict = await dal.getDistrictById('bogura');
+  assert(dalDistrict?.nameEn === 'Bogura' && dalDistrict?.nameBn === 'বগুড়া', 'DAL getDistrictById() retrieves district details');
+
+  const dalCategories = await dal.getCategories();
+  assert(dalCategories.length >= 7, 'DAL getCategories() returns all food category definitions');
+
+  // 19.3: DAL User Authentication & Profile Retrieval
+  const dalAdminUser = await dal.getUserByEmail('admin@foodiebd.com');
+  assert(Boolean(dalAdminUser && dalAdminUser.role === 'admin'), 'DAL getUserByEmail() retrieves user credentials and role');
+  assert(typeof dalAdminUser?.passwordHash === 'string' && dalAdminUser?.passwordHash.length === 128, 'DAL user entity retains complete 128-char password hash');
+  assert(typeof dalAdminUser?.salt === 'string' && dalAdminUser?.salt.length === 32, 'DAL user entity retains 32-char salt');
+
+  const dalAllUsers = await dal.getAllUsers();
+  assert(dalAllUsers.length >= 6, 'DAL getAllUsers() returns user profile list');
+  assert(!('passwordHash' in (dalAllUsers[0] as any)) && !('salt' in (dalAllUsers[0] as any)), 'DAL getAllUsers() safely strips sensitive password hashes and salts');
+
+  // 19.4: DAL Foods & Catalog Operations
+  const dalFoods = await dal.getFoods();
+  assert(dalFoods.length === 40, 'DAL getFoods() returns all published catalog items');
+
+  const dalFoodItem = await dal.getFoodById(dalFoods[0].id);
+  assert(dalFoodItem?.nameEn === dalFoods[0].nameEn, 'DAL getFoodById() returns complete food record with ingredients and descriptions');
+
+  const dalFilterDiv = await dal.getFoods({ divisionId: 'rajshahi' });
+  assert(dalFilterDiv.length > 0 && dalFilterDiv.every((f) => f.divisionId === 'rajshahi'), 'DAL getFoods() filters correctly by divisionId');
+
+  // 19.5: DAL Stats & Overview Aggregations
+  const dalStats = await dal.getPlatformStats();
+  assert(dalStats.totalDistricts === 64 && dalStats.totalDivisions === 8 && dalStats.totalFoods === 40, 'DAL getPlatformStats() aggregates live platform statistics accurately');
+
+  const dalOverview = await dal.getAdminOverview();
+  assert(dalOverview.totalFoods >= 40 && dalOverview.totalUsers >= 6, 'DAL getAdminOverview() aggregates administrative catalog and user totals');
+
+  // 19.6: DAL Reports & Moderation Flow
+  const testReportId = 'rep_test_' + Date.now();
+  const createdReport = await dal.createReport({
+    id: testReportId,
+    reporterUserId: dalAdminUser!.id,
+    reason: 'Test content review report',
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  });
+  assert(createdReport.id === testReportId && createdReport.status === 'pending', 'DAL createReport() persists content moderation reports');
+
+  const allReports = await dal.getReports();
+  assert(allReports.some((r) => r.id === testReportId), 'DAL getReports() returns saved report in report moderation list');
+
+  const reviewedReport = await dal.updateReportStatus(testReportId, 'reviewed');
+  assert(reviewedReport.status === 'reviewed', 'DAL updateReportStatus() transitions report to reviewed status');
+
+  // 19.7: DAL Audit Logging
+  const testAudit = await dal.logAudit({
+    action: 'TEST_AUDIT_ACTION',
+    entityType: 'TEST',
+    entityId: 'test_123',
+    userId: dalAdminUser!.id,
+    userName: dalAdminUser!.name,
+    details: 'Verified DAL audit logging integration',
+  });
+  assert(testAudit.action === 'TEST_AUDIT_ACTION', 'DAL logAudit() generates immutable audit log record');
+
+  // 19.8: Route Architecture Inspection
+  assert(routesContent.includes("import { dal } from './dal';"), 'server/routes.ts imports unified dal data layer');
+  assert(!routesContent.includes('db.getSchema()'), 'server/routes.ts has completely replaced db.getSchema() with async DAL');
+  assert(!routesContent.includes('db.save()'), 'server/routes.ts has completely replaced db.save() with persistent DAL operations');
+  assert(routesContent.includes("apiRouter.post('/reports'"), 'server/routes.ts implements public report submission endpoint');
+  assert(routesContent.includes("apiRouter.get('/admin/reports'"), 'server/routes.ts implements admin report review endpoint');
+  assert(routesContent.includes("apiRouter.patch('/admin/reports/:id'"), 'server/routes.ts implements admin report moderation endpoint');
 
   // SUMMARY
   // ----------------------------------------------------

@@ -26,7 +26,12 @@ ALTER TABLE IF EXISTS foods
     ADD COLUMN IF NOT EXISTS approved_by_user_id VARCHAR(100),
     ADD COLUMN IF NOT EXISTS approved_by_user_name VARCHAR(150),
     ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ,
-    ADD COLUMN IF NOT EXISTS verification_status VARCHAR(50) DEFAULT 'admin_created';
+    ADD COLUMN IF NOT EXISTS verification_status VARCHAR(50) DEFAULT 'admin_created',
+    ADD COLUMN IF NOT EXISTS research_status VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS citation_sources TEXT[] DEFAULT '{}',
+    ADD COLUMN IF NOT EXISTS image_caption TEXT,
+    ADD COLUMN IF NOT EXISTS image_attribution TEXT,
+    ADD COLUMN IF NOT EXISTS image_verified BOOLEAN DEFAULT false;
 
 -- 3. Community Food Submissions Table
 CREATE TABLE IF NOT EXISTS food_submissions (

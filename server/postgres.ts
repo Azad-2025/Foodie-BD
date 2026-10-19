@@ -30,13 +30,18 @@ export function getPostgresPool(): pg.Pool | null {
   }
 
   try {
-    const isSupabase = connectionString.includes('supabase');
+    const isRemote =
+      connectionString.includes('supabase') ||
+      connectionString.includes('sslmode=') ||
+      process.env.NODE_ENV === 'production' ||
+      (!connectionString.includes('localhost') && !connectionString.includes('127.0.0.1'));
+
     pool = new Pool({
       connectionString,
-      ssl: isSupabase ? { rejectUnauthorized: false } : undefined,
-      max: 10, // Serverless-friendly pool ceiling
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
+      ssl: isRemote ? { rejectUnauthorized: false } : undefined,
+      max: process.env.NODE_ENV === 'production' ? 5 : 10, // Serverless-friendly pool ceiling for Vercel
+      idleTimeoutMillis: 10000,
+      connectionTimeoutMillis: 7000,
     });
 
     pool.on('error', (err) => {
