@@ -112,10 +112,12 @@ apiRouter.post('/upload/image', requireAuth, (req: AuthenticatedRequest, res: Re
     }
 
     try {
+      const prefix = context === 'avatar' ? 'avatar' : 'food';
       const meta = await imageStorage.saveImage(
         file.buffer,
-        file.originalname || 'food_upload.jpg',
-        currentUser.userId
+        file.originalname || `${prefix}_upload.jpg`,
+        currentUser.userId,
+        prefix
       );
 
       const dbUser = await dal.getUserById(currentUser.userId);

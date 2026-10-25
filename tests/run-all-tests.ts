@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import http from 'http';
+
 import { DIVISIONS, DISTRICTS } from '../src/data/divisionsAndDistricts';
 import { SEED_FOODS } from '../src/data/seedFoods';
 import { db, createPasswordRecord, verifyPassword, DbUser } from '../server/db';
@@ -1901,6 +1903,125 @@ async function runTestSuite() {
   assert(routesContent.includes("apiRouter.post('/reports'"), 'server/routes.ts implements public report submission endpoint');
   assert(routesContent.includes("apiRouter.get('/admin/reports'"), 'server/routes.ts implements admin report review endpoint');
   assert(routesContent.includes("apiRouter.patch('/admin/reports/:id'"), 'server/routes.ts implements admin report moderation endpoint');
+
+  // ----------------------------------------------------
+  // TEST SUITE 20: Vercel Serverless Function Bundling & Runtime Resolution
+  // ----------------------------------------------------
+  console.log('\n▶ Test Suite 20: Vercel Serverless Function Bundling & Runtime Resolution');
+
+  const serverApiFile = path.resolve(process.cwd(), 'server/api.ts');
+  const bundledApiFile = path.resolve(process.cwd(), 'api/index.js');
+  const vercelConfigFile = path.resolve(process.cwd(), 'vercel.json');
+
+  assert(fs.existsSync(serverApiFile), 'server/api.ts exists as the TypeScript source for serverless function');
+  assert(fs.existsSync(bundledApiFile), 'api/index.js exists as the bundled standalone entry for Vercel');
+  assert(fs.existsSync(vercelConfigFile), 'vercel.json exists and configures deployment routing');
+
+  const bundledContent = fs.readFileSync(bundledApiFile, 'utf8');
+  assert(!bundledContent.includes("from '../server/routes'"), 'api/index.js bundle has eliminated unresolvable relative import to server/routes');
+  assert(!bundledContent.includes("from '../server/auth'"), 'api/index.js bundle has eliminated unresolvable relative import to server/auth');
+  assert(!bundledContent.includes("from '../server/dal'"), 'api/index.js bundle has eliminated unresolvable relative import to server/dal');
+
+  const vercelContent = fs.readFileSync(vercelConfigFile, 'utf8');
+  const vercelJson = JSON.parse(vercelContent);
+  assert(vercelJson.functions && vercelJson.functions['api/index.js'], 'vercel.json explicitly configures api/index.js serverless function');
+
+  // Test live runtime import and route resolution of bundled api/index.js
+  const bundledModule = await import(bundledApiFile);
+  const bundledApp = bundledModule.default;
+  assert(typeof bundledApp === 'function', 'Bundled api/index.js exports a valid Express application');
+
+  const testHttpServer = http.createServer(bundledApp);
+  await new Promise<void>((resolve, reject) => {
+    testHttpServer.listen(0, async () => {
+      const address = testHttpServer.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      try {
+        // 1. Verify /api/health
+        const healthRes = await fetch(`http://localhost:${port}/api/health`);
+        assert(healthRes.status === 200, '/api/health resolves with status 200 OK without ERR_MODULE_NOT_FOUND');
+        const healthData: any = await healthRes.json();
+        assert(healthData.status === 'ok', '/api/health returns valid JSON status payload');
+
+        // 2. Verify /api/districts
+        const districtsRes = await fetch(`http://localhost:${port}/api/districts`);
+        assert(districtsRes.status === 200, '/api/districts resolves with status 200 OK without ERR_MODULE_NOT_FOUND');
+        const districtsData: any = await districtsRes.json();
+        assert(Array.isArray(districtsData) && districtsData.length === 64, '/api/districts returns all 64 districts');
+
+        // 3. Verify /api/foods
+        const foodsRes = await fetch(`http://localhost:${port}/api/foods`);
+        assert(foodsRes.status === 200, '/api/foods resolves with status 200 OK without ERR_MODULE_NOT_FOUND');
+        const foodsData: any = await foodsRes.json();
+        assert(Array.isArray(foodsData) && foodsData.length === 40, '/api/foods returns catalog food items');
+
+        resolve();
+      } catch (err) {
+        reject(err);
+      } finally {
+        testHttpServer.close();
+      }
+    });
+  });
+
+
+
+  // ----------------------------------------------------
+  // TEST SUITE 21: Avatar Image Upload & Profile Editing Suite
+  // ----------------------------------------------------
+  console.log('\n▶ Test Suite 21: Avatar Direct File Upload & Profile Editing Suite');
+
+  // 21.1: Component architecture and replacement of URL text input
+  const myProfileContent = fs.readFileSync(path.resolve(process.cwd(), 'src/pages/MyProfilePage.tsx'), 'utf-8');
+  assert(!myProfileContent.includes('type="url"\n                value={avatarUrl}'), 'MyProfilePage has removed the text input field for avatar URL');
+  assert(myProfileContent.includes('<AvatarImageUpload'), 'MyProfilePage mounts AvatarImageUpload component');
+  assert(myProfileContent.includes("import { AvatarImageUpload } from '../components/common/AvatarImageUpload'"), 'MyProfilePage imports AvatarImageUpload');
+
+  // 21.2: AvatarImageUpload component integrity and HTML file input
+  const avatarUploadFile = path.resolve(process.cwd(), 'src/components/common/AvatarImageUpload.tsx');
+  assert(fs.existsSync(avatarUploadFile), 'AvatarImageUpload.tsx component exists');
+  const avatarUploadContent = fs.readFileSync(avatarUploadFile, 'utf-8');
+  assert(avatarUploadContent.includes('type="file"'), 'AvatarImageUpload includes an HTML file input element');
+  assert(avatarUploadContent.includes('accept="image/jpeg,image/png,image/webp"') || avatarUploadContent.includes('accept="image/*"'), 'AvatarImageUpload restricts file accept to image types');
+  assert(avatarUploadContent.includes('onDrop=') && avatarUploadContent.includes('onDragOver='), 'AvatarImageUpload supports drag-and-drop file upload');
+
+  // 21.3: Localization in Bengali
+  const bnLocale = fs.readFileSync(path.resolve(process.cwd(), 'src/i18n/locales/bn.ts'), 'utf-8');
+  assert(bnLocale.includes('avatar:') && bnLocale.includes('প্রোফাইল ছবি'), 'Bengali locale defines avatar title');
+  assert(bnLocale.includes('avatarSelect:') && bnLocale.includes('ছবি নির্বাচন করুন'), 'Bengali locale defines avatarSelect label');
+  assert(bnLocale.includes('avatarRemove:') && bnLocale.includes('ছবি মুছে ফেলুন'), 'Bengali locale defines avatarRemove label');
+
+  // 21.4: Client API uploadAvatarImage method
+  const apiContent = fs.readFileSync(path.resolve(process.cwd(), 'src/lib/api.ts'), 'utf-8');
+  assert(apiContent.includes('uploadAvatarImage(file: File)'), 'api client exposes dedicated uploadAvatarImage method');
+
+  // 21.5: Image storage handles avatar uploads with avatar_ prefix and binary validation
+  const testAvatarPng = Buffer.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+    0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+    0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41,
+    0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+    0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00,
+    0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+    0x42, 0x60, 0x82,
+  ]);
+  const avatarMeta = await imageStorage.saveImage(testAvatarPng, 'my_avatar.png', adminAccount.id, 'avatar');
+  assert(avatarMeta.fileName.startsWith('avatar_'), 'Avatar upload generates safe filename with avatar_ prefix');
+  assert(avatarMeta.url.includes('avatar_'), 'Avatar upload URL includes generated avatar identifier');
+  assert(isValidFoodImageReference(avatarMeta.url) === true, 'Uploaded avatar URL is recognized as a valid image reference');
+
+  // 21.6: Profile update persistence in DAL
+  const originalAdminAvatar = adminAccount.avatarUrl;
+  const updatedAdmin = await dal.updateUserProfile(adminAccount.id, {
+    avatarUrl: avatarMeta.url,
+  });
+  assert(updatedAdmin.avatarUrl === avatarMeta.url, 'DAL updateUserProfile persists uploaded avatar URL');
+  await dal.updateUserProfile(adminAccount.id, {
+    avatarUrl: originalAdminAvatar,
+  });
+  await imageStorage.deleteImage(avatarMeta.fileName);
 
   // SUMMARY
   // ----------------------------------------------------

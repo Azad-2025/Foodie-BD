@@ -1,8 +1,8 @@
 import 'dotenv/config';
 import express from 'express';
-import { apiRouter } from '../server/routes';
-import { validateAuthConfig } from '../server/auth';
-import { validateDatabaseConfig } from '../server/dal';
+import { apiRouter } from './routes';
+import { validateAuthConfig } from './auth';
+import { validateDatabaseConfig } from './dal';
 
 // Validate critical security and database configurations before handling requests
 validateAuthConfig();

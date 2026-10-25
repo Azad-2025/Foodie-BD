@@ -5,6 +5,7 @@ import { District, Division, FoodSubmission } from '../types';
 import { api } from '../lib/api';
 import { FoodImage } from '../components/common/FoodImage';
 import { FoodImageUpload } from '../components/common/FoodImageUpload';
+import { AvatarImageUpload } from '../components/common/AvatarImageUpload';
 import { FoodSubmissionModal } from '../components/food/FoodSubmissionModal';
 import {
   User,
@@ -83,6 +84,15 @@ export const MyProfilePage: React.FC<MyProfilePageProps> = ({
       setIsLoadingSubmissions(false);
     }
   };
+
+  useEffect(() => {
+    if (user) {
+      setName(user.name || '');
+      setAvatarUrl(user.avatarUrl || '');
+      setHomeDistrictId(user.homeDistrictId || 'dhaka');
+      setBio(user.bio || '');
+    }
+  }, [user]);
 
   useEffect(() => {
     if (isLoggedIn) {
@@ -496,17 +506,12 @@ export const MyProfilePage: React.FC<MyProfilePageProps> = ({
               />
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1 font-bengali">
-                {language === 'bn' ? 'ছবির লিঙ্ক (Avatar URL)' : 'Avatar Image URL'}
-              </label>
-              <input
-                type="url"
-                value={avatarUrl}
-                onChange={(e) => setAvatarUrl(e.target.value)}
-                className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#155C3A]"
-              />
-            </div>
+            <AvatarImageUpload
+              value={avatarUrl}
+              onChange={(newUrl) => setAvatarUrl(newUrl)}
+              userName={name}
+              disabled={isSaving}
+            />
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1 font-bengali">

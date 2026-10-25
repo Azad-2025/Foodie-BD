@@ -46,8 +46,8 @@ export function normalizeFoodImageReference(rawRef: unknown): string {
     return `/api/images/${filename}`;
   }
 
-  // If it is a safe food image filename (e.g. food_1792...png)
-  if (/^food_[a-zA-Z0-9_\-\.]+\.(jpe?g|png|webp|gif|svg)$/i.test(trimmed)) {
+  // If it is a safe food or avatar image filename (e.g. food_1792...png, avatar_1792...png)
+  if (/^(food|avatar)_[a-zA-Z0-9_\-\.]+\.(jpe?g|png|webp|gif|svg)$/i.test(trimmed)) {
     return `/api/images/${trimmed}`;
   }
 

@@ -7,6 +7,7 @@ import { useLanguage } from '../i18n';
 import { AdminFoodEditModal } from '../components/admin/AdminFoodEditModal';
 import { FoodSubmissionModal } from '../components/food/FoodSubmissionModal';
 import { FoodImage } from '../components/common/FoodImage';
+import { FoodImageUpload } from '../components/common/FoodImageUpload';
 import {
   MapPin,
   CheckCircle2,
@@ -535,18 +536,17 @@ export const FoodDetailsPage: React.FC<FoodDetailsPageProps> = ({
               />
             </div>
 
-            {/* Optional Photo URL */}
+            {/* Optional Personal Photo Upload */}
             <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
-                <Camera className="w-3.5 h-3.5 text-slate-500" />
-                Personal Photo Link (ঐচ্ছিক ছবির লিংক)
-              </label>
-              <input
-                type="url"
+              <FoodImageUpload
                 value={photoUrl}
-                onChange={(e) => setPhotoUrl(e.target.value)}
-                placeholder="https://... photo URL"
-                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-800"
+                onChange={setPhotoUrl}
+                context="submission"
+                label={
+                  language === 'bn'
+                    ? 'ব্যক্তিগত খাবারের ছবি (সরাসরি আপলোড করুন)'
+                    : 'Personal Food Photo (Direct Upload)'
+                }
               />
             </div>
           </div>

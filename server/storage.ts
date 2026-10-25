@@ -222,7 +222,8 @@ export class ImageStorageService {
   public async saveImage(
     buffer: Buffer,
     originalName: string,
-    userId: string
+    userId: string,
+    prefix: string = 'food'
   ): Promise<UploadedImageMeta> {
     const validation = validateImageBuffer(buffer);
     if (!validation.isValid) {
@@ -232,7 +233,8 @@ export class ImageStorageService {
     const ext = validation.extension || 'jpg';
     const randomHex = crypto.randomBytes(8).toString('hex');
     const timestamp = Date.now();
-    const safeFileName = `food_${timestamp}_${randomHex}.${ext}`;
+    const safePrefix = prefix === 'avatar' ? 'avatar' : 'food';
+    const safeFileName = `${safePrefix}_${timestamp}_${randomHex}.${ext}`;
     const destinationPath = path.join(this.uploadsDir, safeFileName);
 
     // If Supabase Storage is configured, upload to bucket

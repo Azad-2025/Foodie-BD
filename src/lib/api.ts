@@ -345,7 +345,7 @@ export const api = {
   // Direct Image File Upload System
   async uploadFoodImage(
     file: File,
-    context?: 'food' | 'submission',
+    context?: 'food' | 'submission' | 'avatar',
     targetId?: string
   ): Promise<{
     success: boolean;
@@ -379,6 +379,18 @@ export const api = {
     }
 
     return data;
+  },
+
+  async uploadAvatarImage(file: File): Promise<{
+    success: boolean;
+    imageUrl: string;
+    storagePath: string;
+    fileName: string;
+    size: number;
+    mimeType: string;
+    provider?: string;
+  }> {
+    return this.uploadFoodImage(file, 'avatar');
   },
 
   async deleteUploadedImage(fileName: string): Promise<{ success: boolean; message: string }> {
