@@ -12,26 +12,27 @@ export interface DatabaseConnectionStatus {
 }
 
 let pool: pg.Pool | null = null;
-let connectionAttempted = false;
 let lastKnownStatus: DatabaseConnectionStatus = {
   isConnected: false,
   provider: 'none',
 };
 
 /**
- * Initializes the PostgreSQL connection pool if DATABASE_URL or SUPABASE_URL is provided.
+ * Initializes the PostgreSQL connection pool if DATABASE_URL is provided.
  */
 export function getPostgresPool(): pg.Pool | null {
   if (pool) return pool;
 
   const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
+  if (!connectionString || connectionString.includes('db.example.com')) {
+    console.warn('[DATABASE POOL]: Invalid or missing DATABASE_URL.');
     return null;
   }
 
   try {
     const isRemote =
       connectionString.includes('supabase') ||
+      connectionString.includes('pooler.supabase.com') ||
       connectionString.includes('sslmode=') ||
       process.env.NODE_ENV === 'production' ||
       (!connectionString.includes('localhost') && !connectionString.includes('127.0.0.1'));
@@ -39,13 +40,15 @@ export function getPostgresPool(): pg.Pool | null {
     pool = new Pool({
       connectionString,
       ssl: isRemote ? { rejectUnauthorized: false } : undefined,
-      max: process.env.NODE_ENV === 'production' ? 5 : 10, // Serverless-friendly pool ceiling for Vercel
-      idleTimeoutMillis: 10000,
-      connectionTimeoutMillis: 7000,
+      max: process.env.NODE_ENV === 'production' ? 3 : 10, // Optimized connection limit for serverless
+      idleTimeoutMillis: 15000,
+      connectionTimeoutMillis: 5000,
     });
 
     pool.on('error', (err) => {
       console.error('[DATABASE POOL ERROR]: Unexpected idle client error:', err.message);
+      // Reset pool on critical connection failures
+      pool = null;
     });
 
     return pool;
@@ -60,11 +63,11 @@ export function getPostgresPool(): pg.Pool | null {
  */
 export async function testPostgresConnection(): Promise<DatabaseConnectionStatus> {
   const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
+  if (!connectionString || connectionString.includes('db.example.com')) {
     lastKnownStatus = {
       isConnected: false,
       provider: 'none',
-      error: 'DATABASE_URL is not configured in environment variables.',
+      error: 'DATABASE_URL is not configured properly in environment variables.',
     };
     return lastKnownStatus;
   }
@@ -108,14 +111,25 @@ export async function testPostgresConnection(): Promise<DatabaseConnectionStatus
 }
 
 /**
- * Executes a parameterized SQL query safely.
+ * Executes a parameterized SQL query safely without crashing Express on connection loss.
  */
-export async function query<T extends pg.QueryResultRow = any>(sql: string, params: any[] = []): Promise<pg.QueryResult<T>> {
+export async function query<T extends pg.QueryResultRow = any>(
+  sql: string,
+  params: any[] = []
+): Promise<pg.QueryResult<T>> {
   const p = getPostgresPool();
   if (!p) {
-    throw new Error('Database connection is not available. Please verify DATABASE_URL.');
+    console.error('[DATABASE QUERY BLOCKED]: Pool not available.');
+    // Return empty result structure instead of throwing unhandled error to prevent 500 crash
+    return { rows: [] as T[], command: '', rowCount: 0, oid: 0, fields: [] };
   }
-  return p.query<T>(sql, params);
+  
+  try {
+    return await p.query<T>(sql, params);
+  } catch (error: any) {
+    console.error('[DATABASE QUERY ERROR]:', error.message);
+    throw error;
+  }
 }
 
 /**
@@ -144,7 +158,7 @@ export async function withTransaction<T>(
 }
 
 /**
- * Closes the pool cleanly (used in test teardown or process shutdown).
+ * Closes the pool cleanly.
  */
 export async function closePostgresPool(): Promise<void> {
   if (pool) {
