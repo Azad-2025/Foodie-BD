@@ -2764,21 +2764,23 @@ var lastKnownStatus = {
 function getPostgresPool() {
   if (pool) return pool;
   const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
+  if (!connectionString || connectionString.includes("db.example.com")) {
+    console.warn("[DATABASE POOL]: Invalid or missing DATABASE_URL.");
     return null;
   }
   try {
-    const isRemote = connectionString.includes("supabase") || connectionString.includes("sslmode=") || process.env.NODE_ENV === "production" || !connectionString.includes("localhost") && !connectionString.includes("127.0.0.1");
+    const isRemote = connectionString.includes("supabase") || connectionString.includes("pooler.supabase.com") || connectionString.includes("sslmode=") || process.env.NODE_ENV === "production" || !connectionString.includes("localhost") && !connectionString.includes("127.0.0.1");
     pool = new Pool({
       connectionString,
       ssl: isRemote ? { rejectUnauthorized: false } : void 0,
-      max: process.env.NODE_ENV === "production" ? 5 : 10,
-      // Serverless-friendly pool ceiling for Vercel
-      idleTimeoutMillis: 1e4,
-      connectionTimeoutMillis: 7e3
+      max: process.env.NODE_ENV === "production" ? 3 : 10,
+      // Optimized connection limit for serverless
+      idleTimeoutMillis: 15e3,
+      connectionTimeoutMillis: 5e3
     });
     pool.on("error", (err) => {
       console.error("[DATABASE POOL ERROR]: Unexpected idle client error:", err.message);
+      pool = null;
     });
     return pool;
   } catch (err) {
@@ -2788,11 +2790,11 @@ function getPostgresPool() {
 }
 async function testPostgresConnection() {
   const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
+  if (!connectionString || connectionString.includes("db.example.com")) {
     lastKnownStatus = {
       isConnected: false,
       provider: "none",
-      error: "DATABASE_URL is not configured in environment variables."
+      error: "DATABASE_URL is not configured properly in environment variables."
     };
     return lastKnownStatus;
   }
@@ -2832,9 +2834,15 @@ async function testPostgresConnection() {
 async function query(sql, params = []) {
   const p = getPostgresPool();
   if (!p) {
-    throw new Error("Database connection is not available. Please verify DATABASE_URL.");
+    console.error("[DATABASE QUERY BLOCKED]: Pool not available.");
+    return { rows: [], command: "", rowCount: 0, oid: 0, fields: [] };
   }
-  return p.query(sql, params);
+  try {
+    return await p.query(sql, params);
+  } catch (error) {
+    console.error("[DATABASE QUERY ERROR]:", error.message);
+    throw error;
+  }
 }
 
 // server/postgresDal.ts

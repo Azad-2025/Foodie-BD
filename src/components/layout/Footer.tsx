@@ -1,7 +1,17 @@
 import React, { useState } from 'react';
 import { DIVISIONS } from '../../data/divisionsAndDistricts';
 import { useLanguage } from '../../i18n';
-import { Heart, MapPin, ShieldCheck, Mail, Facebook, Instagram, Linkedin, Github, User } from 'lucide-react';
+import {
+  Heart,
+  MapPin,
+  ShieldCheck,
+  Mail,
+  Facebook,
+  Instagram,
+  Linkedin,
+  Github,
+  User,
+} from 'lucide-react';
 
 interface FooterProps {
   navigate: (route: string, param?: string) => void;
@@ -61,8 +71,22 @@ export const Footer: React.FC<FooterProps> = ({ navigate }) => {
   const [photoError, setPhotoError] = useState(false);
 
   return (
-    <footer className="bg-[#12422A] text-emerald-100 border-t border-emerald-900/50 mt-16">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <footer className="relative bg-[#0d2a1c] text-emerald-100 border-t border-emerald-800/60 mt-16 overflow-hidden">
+      {/* Cartoon Style Food Feast Background Image with Theme-Harmonized Dark Emerald Overlay */}
+      <div className="absolute inset-0 z-0 pointer-events-none select-none overflow-hidden">
+        <img
+          src="/food-cartoon-banner.jpg"
+          alt=""
+          aria-hidden="true"
+          className="w-full h-full object-cover object-center scale-105 filter brightness-[0.32] contrast-[1.15] saturate-[1.2]"
+          loading="lazy"
+        />
+        {/* Multi-layered dark emerald gradient & vignette overlay to ensure pristine contrast and brand theme harmony */}
+        <div className="absolute inset-0 bg-gradient-to-b from-[#12422A]/94 via-[#0d2f1f]/88 to-[#06180f]/96" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-emerald-900/30 via-transparent to-black/60" />
+      </div>
+
+      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8">
           {/* Brand & Creator Col */}
           <div className="lg:col-span-2 space-y-4">
@@ -225,7 +249,7 @@ export const Footer: React.FC<FooterProps> = ({ navigate }) => {
         </div>
 
         {/* Bottom bar */}
-        <div className="mt-10 pt-6 border-t border-emerald-800/60 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-emerald-300/70">
+        <div className="mt-12 pt-6 border-t border-emerald-800/60 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-emerald-300/70">
           <p>© {new Date().getFullYear()} Foodie BD · {t('footer.rights')}</p>
           <p className="flex items-center gap-1">
             {t('footer.madewith')} <Heart className="w-3.5 h-3.5 text-red-400 fill-current inline" />
