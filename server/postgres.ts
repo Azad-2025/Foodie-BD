@@ -43,6 +43,7 @@ export function getPostgresPool(): pg.Pool | null {
       max: process.env.NODE_ENV === 'production' ? 3 : 10, // Optimized connection limit for serverless
       idleTimeoutMillis: 15000,
       connectionTimeoutMillis: 5000,
+      statement_timeout: 8000, // 8-second query timeout to prevent hanging database operations
     });
 
     pool.on('error', (err) => {
@@ -83,7 +84,11 @@ export async function testPostgresConnection(): Promise<DatabaseConnectionStatus
   }
 
   try {
-    const client = await p.connect();
+    const connectPromise = p.connect();
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('PostgreSQL connection timed out after 5s')), 5000)
+    );
+    const client = await Promise.race([connectPromise, timeoutPromise]);
     try {
       const res = await client.query('SELECT NOW() AS now, current_database() as db, version() as ver;');
       const isSupabase = connectionString.includes('supabase');

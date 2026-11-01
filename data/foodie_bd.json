@@ -975,7 +975,7 @@
       "approximatePriceBdt": 250,
       "dietaryType": "veg",
       "createdAt": "2026-10-13T14:49:17.022Z",
-      "updatedAt": "2026-11-01T14:36:52.464Z",
+      "updatedAt": "2026-11-01T14:48:54.293Z",
       "researchStatus": "gi_certified",
       "verificationStatus": "research_verified",
       "citationSources": [
@@ -2351,6 +2351,13 @@
   ],
   "reports": [
     {
+      "id": "rep_test_1793544534296",
+      "reporterUserId": "user_admin_01",
+      "reason": "Test content review report",
+      "status": "reviewed",
+      "createdAt": "2026-11-01T14:48:54.296Z"
+    },
+    {
       "id": "rep_test_1793543812468",
       "reporterUserId": "user_admin_01",
       "reason": "Test content review report",
@@ -2457,6 +2464,46 @@
     }
   ],
   "auditLogs": [
+    {
+      "action": "TEST_AUDIT_ACTION",
+      "entityType": "TEST",
+      "entityId": "test_123",
+      "userId": "user_admin_01",
+      "userName": "Foodie BD Admin",
+      "details": "Verified DAL audit logging integration",
+      "id": "audit_1793544534301_ptfq",
+      "createdAt": "2026-11-01T14:48:54.301Z"
+    },
+    {
+      "action": "USER_REGISTERED",
+      "entityType": "USER",
+      "entityId": "user_1413b009",
+      "userId": "user_1413b009",
+      "userName": "Privilege Escalation Attempt",
+      "details": "User registered with email attacker_1793544534223@example.com (role: user)",
+      "id": "audit_1793544534276_8cu7",
+      "createdAt": "2026-11-01T14:48:54.276Z"
+    },
+    {
+      "action": "PASSWORD_CHANGED",
+      "entityType": "USER",
+      "entityId": "user_sec_temp_01",
+      "userId": "user_sec_temp_01",
+      "userName": "Security Test User",
+      "details": "User successfully changed their account password via authenticated verification.",
+      "id": "audit_1793544534118_gwzz",
+      "createdAt": "2026-11-01T14:48:54.118Z"
+    },
+    {
+      "action": "UPDATE_FOOD",
+      "entityType": "FOOD",
+      "entityId": "food_edit_test_1793544533518",
+      "userId": "user_2bc0e8c2",
+      "userName": "mrazad0101@gmail.com",
+      "details": "Updated food: Updated Test Delicacy (হালনাগাদ পরীক্ষামূলক খাবার)",
+      "id": "audit_1793544533521_7gv9",
+      "createdAt": "2026-11-01T14:48:53.521Z"
+    },
     {
       "action": "TEST_AUDIT_ACTION",
       "entityType": "TEST",

@@ -1934,7 +1934,9 @@ function getPostgresPool() {
       max: process.env.NODE_ENV === "production" ? 3 : 10,
       // Optimized connection limit for serverless
       idleTimeoutMillis: 15e3,
-      connectionTimeoutMillis: 5e3
+      connectionTimeoutMillis: 5e3,
+      statement_timeout: 8e3
+      // 8-second query timeout to prevent hanging database operations
     });
     pool.on("error", (err) => {
       console.error("[DATABASE POOL ERROR]: Unexpected idle client error:", err.message);
@@ -1966,7 +1968,11 @@ async function testPostgresConnection() {
     return lastKnownStatus;
   }
   try {
-    const client = await p.connect();
+    const connectPromise = p.connect();
+    const timeoutPromise = new Promise(
+      (_, reject) => setTimeout(() => reject(new Error("PostgreSQL connection timed out after 5s")), 5e3)
+    );
+    const client = await Promise.race([connectPromise, timeoutPromise]);
     try {
       const res = await client.query("SELECT NOW() AS now, current_database() as db, version() as ver;");
       const isSupabase = connectionString.includes("supabase");
@@ -3531,7 +3537,11 @@ var ImageStorageService = class {
       };
     }
     try {
-      const { data, error } = await this.supabase.storage.getBucket(this.bucketName);
+      const bucketPromise = this.supabase.storage.getBucket(this.bucketName);
+      const timeoutPromise = new Promise(
+        (_, reject) => setTimeout(() => reject(new Error("Storage connection check timed out after 5s")), 5e3)
+      );
+      const { data, error } = await Promise.race([bucketPromise, timeoutPromise]);
       if (error) {
         return {
           isAvailable: false,
@@ -3595,11 +3605,15 @@ var ImageStorageService = class {
     const destinationPath = path2.join(this.uploadsDir, safeFileName);
     if (this.supabase) {
       try {
-        const { error: uploadError } = await this.supabase.storage.from(this.bucketName).upload(safeFileName, buffer, {
+        const uploadPromise = this.supabase.storage.from(this.bucketName).upload(safeFileName, buffer, {
           contentType: validation.detectedMime || "image/jpeg",
           cacheControl: "31536000",
           upsert: false
         });
+        const timeoutPromise = new Promise(
+          (_, reject) => setTimeout(() => reject(new Error("Supabase Storage upload timed out after 6s")), 6e3)
+        );
+        const { error: uploadError } = await Promise.race([uploadPromise, timeoutPromise]);
         if (uploadError) {
           throw new Error(`Supabase Storage upload failed: ${uploadError.message}`);
         }

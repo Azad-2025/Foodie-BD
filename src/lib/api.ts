@@ -34,7 +34,7 @@ export function removeStoredToken(): void {
   } catch {}
 }
 
-async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+async function request<T>(endpoint: string, options: RequestInit = {}, maxRetries = 2): Promise<T> {
   const token = getStoredToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -45,18 +45,71 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const res = await fetch(endpoint, {
-    ...options,
-    headers,
-  });
+  let lastError: any = null;
 
-  const data = await res.json().catch(() => ({}));
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15-second client timeout
 
-  if (!res.ok) {
-    throw new Error(data.error || `Request failed with status ${res.status}`);
+    try {
+      const res = await fetch(endpoint, {
+        ...options,
+        headers,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      // If gateway timeout or temporary service unavailability, retry with exponential backoff
+      if ((res.status === 504 || res.status === 502 || res.status === 503) && attempt < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+        continue;
+      }
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        if (res.status === 504) {
+          throw new Error(
+            data.error ||
+              'সার্ভার থেকে সাড়া পেতে কিছুটা বিলম্ব হচ্ছে (504 Gateway Timeout)। অনুগ্রহ করে পুনরায় চেষ্টা করুন।'
+          );
+        }
+        if (res.status === 502 || res.status === 503) {
+          throw new Error(
+            data.error ||
+              'সার্ভার সাময়িকভাবে অনুপলব্ধ (Service Temporarily Unavailable)। অনুগ্রহ করে কিছুক্ষণ পর আবার চেষ্টা করুন।'
+          );
+        }
+        throw new Error(data.error || `Request failed with status ${res.status}`);
+      }
+
+      return data as T;
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      lastError = err;
+
+      if (err.name === 'AbortError') {
+        if (attempt < maxRetries) {
+          await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+          continue;
+        }
+        throw new Error(
+          'অনুরোধটির সময়সীমা পার হয়ে গেছে (504 Gateway Timeout)। অনুগ্রহ করে আবার চেষ্টা করুন।'
+        );
+      }
+
+      // If network connection drop or fetch failure, retry before throwing
+      if (attempt < maxRetries && (!err.message || !err.message.includes('401') && !err.message.includes('403') && !err.message.includes('400') && !err.message.includes('404') && !err.message.includes('409'))) {
+        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+        continue;
+      }
+
+      throw err;
+    }
   }
 
-  return data as T;
+  throw lastError || new Error('সার্ভার থেকে সাড়া পেতে কিছুটা বিলম্ব হচ্ছে (504 Gateway Timeout)।');
 }
 
 export const api = {
@@ -367,18 +420,35 @@ export const api = {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const res = await fetch('/api/upload/image', {
-      method: 'POST',
-      headers,
-      body: formData,
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 35000); // 35 seconds upload limit
 
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(data.error || `Upload failed with status ${res.status}`);
+    try {
+      const res = await fetch('/api/upload/image', {
+        method: 'POST',
+        headers,
+        body: formData,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (res.status === 504) {
+          throw new Error('ছবি আপলোড করতে সময় বেশি লাগছে (504 Gateway Timeout)। অনুগ্রহ করে ফাইলের আকার ছোট করে পুনরায় চেষ্টা করুন।');
+        }
+        throw new Error(data.error || `Upload failed with status ${res.status}`);
+      }
+
+      return data;
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        throw new Error('ছবি আপলোড করার সময়সীমা অতিক্রম করেছে (Upload timed out)। অনুগ্রহ করে পুনরায় চেষ্টা করুন।');
+      }
+      throw err;
     }
-
-    return data;
   },
 
   async uploadAvatarImage(file: File): Promise<{

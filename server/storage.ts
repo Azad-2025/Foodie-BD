@@ -162,7 +162,11 @@ export class ImageStorageService {
     }
 
     try {
-      const { data, error } = await this.supabase.storage.getBucket(this.bucketName);
+      const bucketPromise = this.supabase.storage.getBucket(this.bucketName);
+      const timeoutPromise = new Promise<{ data: any; error: any }>((_, reject) =>
+        setTimeout(() => reject(new Error('Storage connection check timed out after 5s')), 5000)
+      );
+      const { data, error } = (await Promise.race([bucketPromise, timeoutPromise])) as any;
       if (error) {
         return {
           isAvailable: false,
@@ -240,13 +244,18 @@ export class ImageStorageService {
     // If Supabase Storage is configured, upload to bucket
     if (this.supabase) {
       try {
-        const { error: uploadError } = await this.supabase.storage
+        const uploadPromise = this.supabase.storage
           .from(this.bucketName)
           .upload(safeFileName, buffer, {
             contentType: validation.detectedMime || 'image/jpeg',
             cacheControl: '31536000',
             upsert: false,
           });
+        const timeoutPromise = new Promise<{ error: any }>((_, reject) =>
+          setTimeout(() => reject(new Error('Supabase Storage upload timed out after 6s')), 6000)
+        );
+
+        const { error: uploadError } = (await Promise.race([uploadPromise, timeoutPromise])) as any;
 
         if (uploadError) {
           throw new Error(`Supabase Storage upload failed: ${uploadError.message}`);
