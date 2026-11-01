@@ -4,8 +4,14 @@ import crypto from 'crypto';
 import http from 'http';
 
 import { DIVISIONS, DISTRICTS } from '../src/data/divisionsAndDistricts';
-import { SEED_FOODS } from '../src/data/seedFoods';
-import { db, createPasswordRecord, verifyPassword, DbUser } from '../server/db';
+import {
+  db,
+  createPasswordRecord,
+  verifyPassword,
+  DbUser,
+  PRIMARY_ADMIN_EMAIL,
+  PRIMARY_ADMIN_PASSWORD,
+} from '../server/db';
 import {
   generateToken,
   verifyToken,
@@ -1607,7 +1613,7 @@ async function runTestSuite() {
   assert(migrationDryRun.dryRun === true, 'Dry-run flag ensures no remote writes or modifications occurred');
   assert(migrationDryRun.sourceCounts.foods === 40, 'Migration validates all 40 food catalog items');
   assert(migrationDryRun.sourceCounts.districts === 64, 'Migration validates all 64 administrative districts');
-  assert(migrationDryRun.sourceCounts.users === 6, 'Migration validates all 6 user accounts');
+  assert(migrationDryRun.sourceCounts.users >= 6, `Migration validates user accounts (found: ${migrationDryRun.sourceCounts.users})`);
 
   // 16.4: Password hash and salt preservation verification
   const demoUser = parsedBackup.users.find((u: any) => u.email === 'admin@foodiebd.com');
@@ -1641,7 +1647,7 @@ async function runTestSuite() {
   // 16.7: Non-destructive verification of current database
   const finalSchemaCheck = db.getSchema();
   assert(finalSchemaCheck.foods.length === 40, 'Existing catalog contains all 40 verified regional foods intact');
-  assert(finalSchemaCheck.users.length === 6, 'Existing registered accounts remain fully intact');
+  assert(finalSchemaCheck.users.length >= 6, `Existing registered accounts remain fully intact (found: ${finalSchemaCheck.users.length})`);
 
   // ----------------------------------------------------
   // TEST SUITE 17: Research-Based District Food Catalog & Authentic Provenance Suite
@@ -2022,6 +2028,68 @@ async function runTestSuite() {
     avatarUrl: originalAdminAvatar,
   });
   await imageStorage.deleteImage(avatarMeta.fileName);
+
+  // ----------------------------------------------------
+  // TEST SUITE 22: Primary Designated Admin Authentication & Role Enforcement
+  // ----------------------------------------------------
+  console.log('\n▶ Test Suite 22: Primary Designated Admin Authentication & Role Enforcement');
+
+  // 22.1: Designated Admin credentials verify in DAL / Database
+  const primaryAdminAccount = await dal.getUserByEmail(PRIMARY_ADMIN_EMAIL);
+  assert(Boolean(primaryAdminAccount), `Designated primary admin exists in DAL (${PRIMARY_ADMIN_EMAIL})`);
+  assert(primaryAdminAccount?.role === 'admin', 'Designated primary admin has role "admin"');
+  assert(
+    verifyPassword(PRIMARY_ADMIN_PASSWORD, primaryAdminAccount!.passwordHash, primaryAdminAccount!.salt),
+    'Designated primary admin password validates with cryptographic hash'
+  );
+
+  // 22.2: Primary admin login via /api/auth/login succeeds and returns admin role & token
+  const superAdminLoginRes = await mockApiCall('POST', '/auth/login', {
+    email: PRIMARY_ADMIN_EMAIL,
+    password: PRIMARY_ADMIN_PASSWORD,
+  });
+  assert(superAdminLoginRes.status === 200, 'Primary admin login succeeds with HTTP 200 OK');
+  assert(superAdminLoginRes.body.user?.role === 'admin', 'Primary admin login response assigns role "admin"');
+  assert(Boolean(superAdminLoginRes.body.token), 'Primary admin login returns a valid JWT token');
+
+  const superAdminTokenDecoded = verifyToken(superAdminLoginRes.body.token);
+  assert(superAdminTokenDecoded?.role === 'admin', 'Primary admin token decodes to role "admin"');
+
+  // 22.3: Primary admin incorrect password attempt fails
+  const superAdminBadLoginRes = await mockApiCall('POST', '/auth/login', {
+    email: PRIMARY_ADMIN_EMAIL,
+    password: 'WrongPassword123!',
+  });
+  assert(superAdminBadLoginRes.status === 401, 'Primary admin login with wrong password is rejected with HTTP 401');
+
+  // 22.4: Other users default to role "user"
+  const normalUserAccount = await dal.getUserByEmail('foodie@example.com');
+  assert(Boolean(normalUserAccount), 'Regular user exists in database (foodie@example.com)');
+  assert(normalUserAccount?.role === 'user', 'Regular user has role "user"');
+
+  const normalUserLoginRes = await mockApiCall('POST', '/auth/login', {
+    email: 'foodie@example.com',
+    password: 'Foodie123!',
+  });
+  assert(normalUserLoginRes.status === 200, 'Regular user login succeeds with HTTP 200');
+  assert(normalUserLoginRes.body.user?.role === 'user', 'Regular user login returns role "user"');
+
+  // 22.5: Primary admin has access to admin endpoints while normal user is forbidden
+  const adminAccessRes = await mockApiCall(
+    'GET',
+    '/admin/overview',
+    undefined,
+    { authorization: `Bearer ${superAdminLoginRes.body.token}` }
+  );
+  assert(adminAccessRes.status === 200, 'Primary admin token successfully accesses /api/admin/overview (HTTP 200)');
+
+  const userForbiddenRes = await mockApiCall(
+    'GET',
+    '/admin/overview',
+    undefined,
+    { authorization: `Bearer ${normalUserLoginRes.body.token}` }
+  );
+  assert(userForbiddenRes.status === 403, 'Regular user token is blocked from /api/admin/overview with HTTP 403 Forbidden');
 
   // SUMMARY
   // ----------------------------------------------------

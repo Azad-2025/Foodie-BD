@@ -1,6 +1,18 @@
 {
   "users": [
     {
+      "id": "user_admin_primary",
+      "name": "Salahuddin Azad (Admin)",
+      "email": "salahuddinazad01631@gmail.com",
+      "role": "admin",
+      "passwordHash": "a102ebf721840b1369788c8b0ac14f639473868d13dee63ae58466e0c2e44451641de7a8a98b267978706d37f9db21460f40d123cebb04b9f4dd60cf5ae04b4a",
+      "salt": "38a9d80e812dd8e30ccc77f545ae9ad7",
+      "avatarUrl": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80",
+      "homeDistrictId": "dhaka",
+      "bio": "Head administrator and curator of Foodie BD.",
+      "createdAt": "2026-10-11T14:07:05.062Z"
+    },
+    {
       "id": "user_admin_01",
       "name": "Foodie BD Admin",
       "email": "admin@foodiebd.com",
@@ -963,7 +975,7 @@
       "approximatePriceBdt": 250,
       "dietaryType": "veg",
       "createdAt": "2026-10-13T14:49:17.022Z",
-      "updatedAt": "2026-11-01T14:00:55.404Z",
+      "updatedAt": "2026-11-01T14:36:52.464Z",
       "researchStatus": "gi_certified",
       "verificationStatus": "research_verified",
       "citationSources": [
@@ -2339,6 +2351,27 @@
   ],
   "reports": [
     {
+      "id": "rep_test_1793543812468",
+      "reporterUserId": "user_admin_01",
+      "reason": "Test content review report",
+      "status": "reviewed",
+      "createdAt": "2026-11-01T14:36:52.468Z"
+    },
+    {
+      "id": "rep_test_1793543753078",
+      "reporterUserId": "user_admin_01",
+      "reason": "Test content review report",
+      "status": "reviewed",
+      "createdAt": "2026-11-01T14:35:53.078Z"
+    },
+    {
+      "id": "rep_test_1793543743726",
+      "reporterUserId": "user_admin_01",
+      "reason": "Test content review report",
+      "status": "reviewed",
+      "createdAt": "2026-11-01T14:35:43.726Z"
+    },
+    {
       "id": "rep_test_1793541655411",
       "reporterUserId": "user_admin_01",
       "reason": "Test content review report",
@@ -2424,6 +2457,126 @@
     }
   ],
   "auditLogs": [
+    {
+      "action": "TEST_AUDIT_ACTION",
+      "entityType": "TEST",
+      "entityId": "test_123",
+      "userId": "user_admin_01",
+      "userName": "Foodie BD Admin",
+      "details": "Verified DAL audit logging integration",
+      "id": "audit_1793543812471_p7pe",
+      "createdAt": "2026-11-01T14:36:52.471Z"
+    },
+    {
+      "action": "USER_REGISTERED",
+      "entityType": "USER",
+      "entityId": "user_115a6878",
+      "userId": "user_115a6878",
+      "userName": "Privilege Escalation Attempt",
+      "details": "User registered with email attacker_1793543812400@example.com (role: user)",
+      "id": "audit_1793543812449_366y",
+      "createdAt": "2026-11-01T14:36:52.449Z"
+    },
+    {
+      "action": "PASSWORD_CHANGED",
+      "entityType": "USER",
+      "entityId": "user_sec_temp_01",
+      "userId": "user_sec_temp_01",
+      "userName": "Security Test User",
+      "details": "User successfully changed their account password via authenticated verification.",
+      "id": "audit_1793543812305_rc09",
+      "createdAt": "2026-11-01T14:36:52.305Z"
+    },
+    {
+      "action": "UPDATE_FOOD",
+      "entityType": "FOOD",
+      "entityId": "food_edit_test_1793543811759",
+      "userId": "user_2bc0e8c2",
+      "userName": "mrazad0101@gmail.com",
+      "details": "Updated food: Updated Test Delicacy (হালনাগাদ পরীক্ষামূলক খাবার)",
+      "id": "audit_1793543811762_25o1",
+      "createdAt": "2026-11-01T14:36:51.762Z"
+    },
+    {
+      "action": "TEST_AUDIT_ACTION",
+      "entityType": "TEST",
+      "entityId": "test_123",
+      "userId": "user_admin_01",
+      "userName": "Foodie BD Admin",
+      "details": "Verified DAL audit logging integration",
+      "id": "audit_1793543753081_vyee",
+      "createdAt": "2026-11-01T14:35:53.081Z"
+    },
+    {
+      "action": "USER_REGISTERED",
+      "entityType": "USER",
+      "entityId": "user_4cb519d4",
+      "userId": "user_4cb519d4",
+      "userName": "Privilege Escalation Attempt",
+      "details": "User registered with email attacker_1793543753006@example.com (role: user)",
+      "id": "audit_1793543753055_wan0",
+      "createdAt": "2026-11-01T14:35:53.055Z"
+    },
+    {
+      "action": "PASSWORD_CHANGED",
+      "entityType": "USER",
+      "entityId": "user_sec_temp_01",
+      "userId": "user_sec_temp_01",
+      "userName": "Security Test User",
+      "details": "User successfully changed their account password via authenticated verification.",
+      "id": "audit_1793543752912_22pe",
+      "createdAt": "2026-11-01T14:35:52.912Z"
+    },
+    {
+      "action": "UPDATE_FOOD",
+      "entityType": "FOOD",
+      "entityId": "food_edit_test_1793543752354",
+      "userId": "user_2bc0e8c2",
+      "userName": "mrazad0101@gmail.com",
+      "details": "Updated food: Updated Test Delicacy (হালনাগাদ পরীক্ষামূলক খাবার)",
+      "id": "audit_1793543752357_v3ct",
+      "createdAt": "2026-11-01T14:35:52.357Z"
+    },
+    {
+      "action": "TEST_AUDIT_ACTION",
+      "entityType": "TEST",
+      "entityId": "test_123",
+      "userId": "user_admin_01",
+      "userName": "Foodie BD Admin",
+      "details": "Verified DAL audit logging integration",
+      "id": "audit_1793543743729_oq98",
+      "createdAt": "2026-11-01T14:35:43.729Z"
+    },
+    {
+      "action": "USER_REGISTERED",
+      "entityType": "USER",
+      "entityId": "user_004d3065",
+      "userId": "user_004d3065",
+      "userName": "Privilege Escalation Attempt",
+      "details": "User registered with email attacker_1793543743650@example.com (role: user)",
+      "id": "audit_1793543743705_htq5",
+      "createdAt": "2026-11-01T14:35:43.705Z"
+    },
+    {
+      "action": "PASSWORD_CHANGED",
+      "entityType": "USER",
+      "entityId": "user_sec_temp_01",
+      "userId": "user_sec_temp_01",
+      "userName": "Security Test User",
+      "details": "User successfully changed their account password via authenticated verification.",
+      "id": "audit_1793543743545_iw93",
+      "createdAt": "2026-11-01T14:35:43.545Z"
+    },
+    {
+      "action": "UPDATE_FOOD",
+      "entityType": "FOOD",
+      "entityId": "food_edit_test_1793543742948",
+      "userId": "user_2bc0e8c2",
+      "userName": "mrazad0101@gmail.com",
+      "details": "Updated food: Updated Test Delicacy (হালনাগাদ পরীক্ষামূলক খাবার)",
+      "id": "audit_1793543742951_qsv8",
+      "createdAt": "2026-11-01T14:35:42.951Z"
+    },
     {
       "action": "TEST_AUDIT_ACTION",
       "entityType": "TEST",

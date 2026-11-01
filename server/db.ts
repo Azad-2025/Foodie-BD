@@ -52,6 +52,9 @@ export function verifyPassword(password: string, hash: string, salt: string): bo
   return crypto.timingSafeEqual(Buffer.from(calculated, 'hex'), Buffer.from(hash, 'hex'));
 }
 
+export const PRIMARY_ADMIN_EMAIL = 'salahuddinazad01631@gmail.com';
+export const PRIMARY_ADMIN_PASSWORD = 'Super@dmin01';
+
 class Database {
   private data: DatabaseSchema;
 
@@ -79,6 +82,54 @@ class Database {
         if (!parsed.achievements) parsed.achievements = SYSTEM_ACHIEVEMENTS;
         if (!parsed.reports) parsed.reports = [];
         if (!parsed.auditLogs) parsed.auditLogs = [];
+        if (!parsed.users) parsed.users = [];
+
+        // Ensure primary admin exists with admin role and configured password
+        const superAdminRecord = createPasswordRecord(PRIMARY_ADMIN_PASSWORD);
+        const existingPrimaryAdmin = parsed.users.find(
+          (u: DbUser) => u.email && u.email.toLowerCase() === PRIMARY_ADMIN_EMAIL.toLowerCase()
+        );
+        if (!existingPrimaryAdmin) {
+          parsed.users.unshift({
+            id: 'user_admin_primary',
+            name: 'Salahuddin Azad (Admin)',
+            email: PRIMARY_ADMIN_EMAIL,
+            role: 'admin',
+            passwordHash: superAdminRecord.hash,
+            salt: superAdminRecord.salt,
+            avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
+            homeDistrictId: 'dhaka',
+            bio: 'Head administrator and curator of Foodie BD.',
+            createdAt: new Date().toISOString(),
+          });
+        } else {
+          existingPrimaryAdmin.role = 'admin';
+          if (!verifyPassword(PRIMARY_ADMIN_PASSWORD, existingPrimaryAdmin.passwordHash, existingPrimaryAdmin.salt)) {
+            existingPrimaryAdmin.passwordHash = superAdminRecord.hash;
+            existingPrimaryAdmin.salt = superAdminRecord.salt;
+          }
+        }
+
+        // Ensure legacy admin exists for test suite compatibility
+        const existingLegacyAdmin = parsed.users.find(
+          (u: DbUser) => u.email && u.email.toLowerCase() === 'admin@foodiebd.com'
+        );
+        if (!existingLegacyAdmin) {
+          const legacyPass = createPasswordRecord('AdminPass123!');
+          parsed.users.push({
+            id: 'user_admin_01',
+            name: 'Foodie BD Admin',
+            email: 'admin@foodiebd.com',
+            role: 'admin',
+            passwordHash: legacyPass.hash,
+            salt: legacyPass.salt,
+            avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
+            homeDistrictId: 'dhaka',
+            bio: 'Head curator of Foodie BD culinary preservation registry.',
+            createdAt: new Date().toISOString(),
+          });
+        }
+
         return parsed;
       } catch (err) {
         console.error('Error reading db file, re-initializing database:', err);
@@ -86,10 +137,23 @@ class Database {
     }
 
     // Initialize with verified seeds
+    const superAdminPass = createPasswordRecord(PRIMARY_ADMIN_PASSWORD);
     const adminPass = createPasswordRecord('AdminPass123!');
     const demoUserPass = createPasswordRecord('Foodie123!');
 
     const initialUsers: DbUser[] = [
+      {
+        id: 'user_admin_primary',
+        name: 'Salahuddin Azad (Admin)',
+        email: PRIMARY_ADMIN_EMAIL,
+        role: 'admin',
+        passwordHash: superAdminPass.hash,
+        salt: superAdminPass.salt,
+        avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
+        homeDistrictId: 'dhaka',
+        bio: 'Head administrator and curator of Foodie BD.',
+        createdAt: new Date().toISOString(),
+      },
       {
         id: 'user_admin_01',
         name: 'Foodie BD Admin',

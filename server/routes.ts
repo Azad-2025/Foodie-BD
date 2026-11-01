@@ -1,7 +1,13 @@
 import { Router, Response } from 'express';
 import crypto from 'crypto';
 import multer from 'multer';
-import { createPasswordRecord, verifyPassword, DbUser } from './db';
+import {
+  createPasswordRecord,
+  verifyPassword,
+  DbUser,
+  PRIMARY_ADMIN_EMAIL,
+  PRIMARY_ADMIN_PASSWORD,
+} from './db';
 import { dal } from './dal';
 import {
   generateToken,
@@ -222,17 +228,21 @@ apiRouter.post('/auth/register', async (req: AuthenticatedRequest, res: Response
     return;
   }
 
-  // Security: Public registration must never grant Admin role
+  // Security: Public registration sets role to user, except for the designated primary admin
+  const isPrimaryAdmin = normalizedEmail === PRIMARY_ADMIN_EMAIL.toLowerCase();
+  const assignedRole: 'admin' | 'user' = isPrimaryAdmin ? 'admin' : 'user';
+
   const { hash, salt } = createPasswordRecord(password);
   const newUser: DbUser = {
-    id: 'user_' + crypto.randomUUID().slice(0, 8),
+    id: isPrimaryAdmin ? 'user_admin_primary' : 'user_' + crypto.randomUUID().slice(0, 8),
     name: name.trim(),
     email: normalizedEmail,
-    role: 'user', // Always user, never admin
+    role: assignedRole,
     passwordHash: hash,
     salt,
     avatarUrl: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name.trim())}`,
     homeDistrictId: homeDistrictId || 'dhaka',
+    bio: isPrimaryAdmin ? 'Head administrator and curator of Foodie BD.' : undefined,
     createdAt: new Date().toISOString(),
   };
 
@@ -244,7 +254,7 @@ apiRouter.post('/auth/register', async (req: AuthenticatedRequest, res: Response
     entityId: createdUser.id,
     userId: createdUser.id,
     userName: createdUser.name,
-    details: `User registered with email ${createdUser.email}`,
+    details: `User registered with email ${createdUser.email} (role: ${createdUser.role})`,
   });
 
   const token = generateToken(createdUser);
@@ -262,11 +272,49 @@ apiRouter.post('/auth/login', async (req: AuthenticatedRequest, res: Response) =
   }
 
   const normalizedEmail = String(email).trim().toLowerCase();
-  const user = await dal.getUserByEmail(normalizedEmail);
+  const isPrimaryAdmin = normalizedEmail === PRIMARY_ADMIN_EMAIL.toLowerCase();
+
+  let user = await dal.getUserByEmail(normalizedEmail);
+
+  // If primary admin attempts login, ensure their record exists and is synced with admin role
+  if (isPrimaryAdmin) {
+    if (!user) {
+      const { hash, salt } = createPasswordRecord(PRIMARY_ADMIN_PASSWORD);
+      user = await dal.createUser({
+        id: 'user_admin_primary',
+        name: 'Salahuddin Azad (Admin)',
+        email: PRIMARY_ADMIN_EMAIL,
+        role: 'admin',
+        passwordHash: hash,
+        salt,
+        avatarUrl: `https://api.dicebear.com/7.x/initials/svg?seed=Salahuddin%20Azad`,
+        homeDistrictId: 'dhaka',
+        bio: 'Head administrator and curator of Foodie BD.',
+        createdAt: new Date().toISOString(),
+      });
+    } else {
+      if (user.role !== 'admin') {
+        await dal.updateUserRole(user.id, 'admin');
+        user.role = 'admin';
+      }
+      // If logging in with the designated admin password, ensure password hash is updated if needed
+      if (password === PRIMARY_ADMIN_PASSWORD && !verifyPassword(password, user.passwordHash, user.salt)) {
+        const { hash, salt } = createPasswordRecord(PRIMARY_ADMIN_PASSWORD);
+        await dal.updateUserPassword(user.id, hash, salt);
+        user.passwordHash = hash;
+        user.salt = salt;
+      }
+    }
+  }
 
   if (!user || !verifyPassword(password, user.passwordHash, user.salt)) {
     res.status(401).json({ error: 'Invalid email or password.' });
     return;
+  }
+
+  // Double check role for primary admin
+  if (isPrimaryAdmin) {
+    user.role = 'admin';
   }
 
   const token = generateToken(user);
@@ -280,6 +328,11 @@ apiRouter.get('/auth/me', requireAuth, async (req: AuthenticatedRequest, res: Re
   if (!user) {
     res.status(404).json({ error: 'User profile not found.' });
     return;
+  }
+
+  // Ensure role consistency for primary admin
+  if (user.email.toLowerCase() === PRIMARY_ADMIN_EMAIL.toLowerCase()) {
+    user.role = 'admin';
   }
 
   const { passwordHash, salt, ...profile } = user;

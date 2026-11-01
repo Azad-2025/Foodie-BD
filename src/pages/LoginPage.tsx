@@ -31,8 +31,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate }) => {
   };
 
   const fillDemoAdmin = () => {
-    setEmail('admin@foodiebd.com');
-    setPassword('AdminPass123!');
+    setEmail('salahuddinazad01631@gmail.com');
+    setPassword('Super@dmin01');
     setError(null);
   };
 

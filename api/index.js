@@ -1681,6 +1681,8 @@ function verifyPassword(password, hash, salt) {
   const calculated = hashPassword(password, salt);
   return crypto.timingSafeEqual(Buffer.from(calculated, "hex"), Buffer.from(hash, "hex"));
 }
+var PRIMARY_ADMIN_EMAIL = "salahuddinazad01631@gmail.com";
+var PRIMARY_ADMIN_PASSWORD = "Super@dmin01";
 var Database = class {
   constructor() {
     this.data = this.init();
@@ -1703,14 +1705,70 @@ var Database = class {
         if (!parsed.achievements) parsed.achievements = SYSTEM_ACHIEVEMENTS;
         if (!parsed.reports) parsed.reports = [];
         if (!parsed.auditLogs) parsed.auditLogs = [];
+        if (!parsed.users) parsed.users = [];
+        const superAdminRecord = createPasswordRecord(PRIMARY_ADMIN_PASSWORD);
+        const existingPrimaryAdmin = parsed.users.find(
+          (u) => u.email && u.email.toLowerCase() === PRIMARY_ADMIN_EMAIL.toLowerCase()
+        );
+        if (!existingPrimaryAdmin) {
+          parsed.users.unshift({
+            id: "user_admin_primary",
+            name: "Salahuddin Azad (Admin)",
+            email: PRIMARY_ADMIN_EMAIL,
+            role: "admin",
+            passwordHash: superAdminRecord.hash,
+            salt: superAdminRecord.salt,
+            avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80",
+            homeDistrictId: "dhaka",
+            bio: "Head administrator and curator of Foodie BD.",
+            createdAt: (/* @__PURE__ */ new Date()).toISOString()
+          });
+        } else {
+          existingPrimaryAdmin.role = "admin";
+          if (!verifyPassword(PRIMARY_ADMIN_PASSWORD, existingPrimaryAdmin.passwordHash, existingPrimaryAdmin.salt)) {
+            existingPrimaryAdmin.passwordHash = superAdminRecord.hash;
+            existingPrimaryAdmin.salt = superAdminRecord.salt;
+          }
+        }
+        const existingLegacyAdmin = parsed.users.find(
+          (u) => u.email && u.email.toLowerCase() === "admin@foodiebd.com"
+        );
+        if (!existingLegacyAdmin) {
+          const legacyPass = createPasswordRecord("AdminPass123!");
+          parsed.users.push({
+            id: "user_admin_01",
+            name: "Foodie BD Admin",
+            email: "admin@foodiebd.com",
+            role: "admin",
+            passwordHash: legacyPass.hash,
+            salt: legacyPass.salt,
+            avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80",
+            homeDistrictId: "dhaka",
+            bio: "Head curator of Foodie BD culinary preservation registry.",
+            createdAt: (/* @__PURE__ */ new Date()).toISOString()
+          });
+        }
         return parsed;
       } catch (err) {
         console.error("Error reading db file, re-initializing database:", err);
       }
     }
+    const superAdminPass = createPasswordRecord(PRIMARY_ADMIN_PASSWORD);
     const adminPass = createPasswordRecord("AdminPass123!");
     const demoUserPass = createPasswordRecord("Foodie123!");
     const initialUsers = [
+      {
+        id: "user_admin_primary",
+        name: "Salahuddin Azad (Admin)",
+        email: PRIMARY_ADMIN_EMAIL,
+        role: "admin",
+        passwordHash: superAdminPass.hash,
+        salt: superAdminPass.salt,
+        avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80",
+        homeDistrictId: "dhaka",
+        bio: "Head administrator and curator of Foodie BD.",
+        createdAt: (/* @__PURE__ */ new Date()).toISOString()
+      },
       {
         id: "user_admin_01",
         name: "Foodie BD Admin",
@@ -1851,9 +1909,6 @@ var Database = class {
   }
 };
 var db = new Database();
-
-// server/dal.ts
-import "dotenv/config";
 
 // server/postgres.ts
 import "dotenv/config";
@@ -2255,6 +2310,11 @@ var PostgresDataAccessLayer = class {
     return (res.rowCount ?? 0) > 0;
   }
   async updateUserRole(id, role) {
+    const existing = await this.getUserById(id);
+    if (!existing) throw new Error("User not found.");
+    if (existing.email.toLowerCase() === PRIMARY_ADMIN_EMAIL.toLowerCase() && role !== "admin") {
+      throw new Error("Primary administrator role cannot be downgraded.");
+    }
     const res = await query("UPDATE profiles SET role = $2, updated_at = NOW() WHERE id = $1 RETURNING *", [id, role]);
     if (res.rows.length === 0) throw new Error("User not found.");
     const u = mapProfileRow(res.rows[0]);
@@ -2863,6 +2923,9 @@ var JsonDataAccessLayer = class {
   async updateUserRole(id, role) {
     const user = db.getSchema().users.find((u) => u.id === id);
     if (!user) throw new Error("User not found.");
+    if (user.email.toLowerCase() === PRIMARY_ADMIN_EMAIL.toLowerCase() && role !== "admin") {
+      throw new Error("Primary administrator role cannot be downgraded.");
+    }
     user.role = role;
     db.save();
     return {
@@ -4748,17 +4811,19 @@ apiRouter.post("/auth/register", async (req, res) => {
     res.status(409).json({ error: "An account with this email address already exists." });
     return;
   }
+  const isPrimaryAdmin = normalizedEmail === PRIMARY_ADMIN_EMAIL.toLowerCase();
+  const assignedRole = isPrimaryAdmin ? "admin" : "user";
   const { hash, salt } = createPasswordRecord(password);
   const newUser = {
-    id: "user_" + crypto4.randomUUID().slice(0, 8),
+    id: isPrimaryAdmin ? "user_admin_primary" : "user_" + crypto4.randomUUID().slice(0, 8),
     name: name.trim(),
     email: normalizedEmail,
-    role: "user",
-    // Always user, never admin
+    role: assignedRole,
     passwordHash: hash,
     salt,
     avatarUrl: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name.trim())}`,
     homeDistrictId: homeDistrictId || "dhaka",
+    bio: isPrimaryAdmin ? "Head administrator and curator of Foodie BD." : void 0,
     createdAt: (/* @__PURE__ */ new Date()).toISOString()
   };
   const createdUser = await dal.createUser(newUser);
@@ -4768,7 +4833,7 @@ apiRouter.post("/auth/register", async (req, res) => {
     entityId: createdUser.id,
     userId: createdUser.id,
     userName: createdUser.name,
-    details: `User registered with email ${createdUser.email}`
+    details: `User registered with email ${createdUser.email} (role: ${createdUser.role})`
   });
   const token = generateToken(createdUser);
   const { passwordHash, salt: s, ...profile } = createdUser;
@@ -4781,10 +4846,42 @@ apiRouter.post("/auth/login", async (req, res) => {
     return;
   }
   const normalizedEmail = String(email).trim().toLowerCase();
-  const user = await dal.getUserByEmail(normalizedEmail);
+  const isPrimaryAdmin = normalizedEmail === PRIMARY_ADMIN_EMAIL.toLowerCase();
+  let user = await dal.getUserByEmail(normalizedEmail);
+  if (isPrimaryAdmin) {
+    if (!user) {
+      const { hash, salt: salt2 } = createPasswordRecord(PRIMARY_ADMIN_PASSWORD);
+      user = await dal.createUser({
+        id: "user_admin_primary",
+        name: "Salahuddin Azad (Admin)",
+        email: PRIMARY_ADMIN_EMAIL,
+        role: "admin",
+        passwordHash: hash,
+        salt: salt2,
+        avatarUrl: `https://api.dicebear.com/7.x/initials/svg?seed=Salahuddin%20Azad`,
+        homeDistrictId: "dhaka",
+        bio: "Head administrator and curator of Foodie BD.",
+        createdAt: (/* @__PURE__ */ new Date()).toISOString()
+      });
+    } else {
+      if (user.role !== "admin") {
+        await dal.updateUserRole(user.id, "admin");
+        user.role = "admin";
+      }
+      if (password === PRIMARY_ADMIN_PASSWORD && !verifyPassword(password, user.passwordHash, user.salt)) {
+        const { hash, salt: salt2 } = createPasswordRecord(PRIMARY_ADMIN_PASSWORD);
+        await dal.updateUserPassword(user.id, hash, salt2);
+        user.passwordHash = hash;
+        user.salt = salt2;
+      }
+    }
+  }
   if (!user || !verifyPassword(password, user.passwordHash, user.salt)) {
     res.status(401).json({ error: "Invalid email or password." });
     return;
+  }
+  if (isPrimaryAdmin) {
+    user.role = "admin";
   }
   const token = generateToken(user);
   const { passwordHash, salt, ...profile } = user;
@@ -4795,6 +4892,9 @@ apiRouter.get("/auth/me", requireAuth, async (req, res) => {
   if (!user) {
     res.status(404).json({ error: "User profile not found." });
     return;
+  }
+  if (user.email.toLowerCase() === PRIMARY_ADMIN_EMAIL.toLowerCase()) {
+    user.role = "admin";
   }
   const { passwordHash, salt, ...profile } = user;
   res.json({ user: profile });

@@ -1,5 +1,4 @@
-import 'dotenv/config';
-import { db, DbUser, ReportItem } from './db';
+import { db, DbUser, ReportItem, PRIMARY_ADMIN_EMAIL } from './db';
 import { postgresDal } from './postgresDal';
 import {
   Division,
@@ -132,6 +131,9 @@ class JsonDataAccessLayer {
   async updateUserRole(id: string, role: 'admin' | 'user'): Promise<UserProfile> {
     const user = db.getSchema().users.find((u) => u.id === id);
     if (!user) throw new Error('User not found.');
+    if (user.email.toLowerCase() === PRIMARY_ADMIN_EMAIL.toLowerCase() && role !== 'admin') {
+      throw new Error('Primary administrator role cannot be downgraded.');
+    }
     user.role = role;
     db.save();
     return {

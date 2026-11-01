@@ -14,7 +14,7 @@ import {
   AuditLog,
   PlatformStats,
 } from '../src/types';
-import { DbUser, ReportItem } from './db';
+import { DbUser, ReportItem, PRIMARY_ADMIN_EMAIL } from './db';
 
 // Row mapper helpers
 function mapDivisionRow(row: any): Division {
@@ -345,6 +345,11 @@ export class PostgresDataAccessLayer {
   }
 
   async updateUserRole(id: string, role: 'admin' | 'user'): Promise<UserProfile> {
+    const existing = await this.getUserById(id);
+    if (!existing) throw new Error('User not found.');
+    if (existing.email.toLowerCase() === PRIMARY_ADMIN_EMAIL.toLowerCase() && role !== 'admin') {
+      throw new Error('Primary administrator role cannot be downgraded.');
+    }
     const res = await query('UPDATE profiles SET role = $2, updated_at = NOW() WHERE id = $1 RETURNING *', [id, role]);
     if (res.rows.length === 0) throw new Error('User not found.');
     const u = mapProfileRow(res.rows[0]);
