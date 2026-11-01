@@ -14,6 +14,7 @@ import { Food, FoodSubmission, UserFoodTracking, FoodReview, PlatformStats } fro
 import { imageStorage, validateImageBuffer } from './storage';
 import { isValidFoodImageReference, normalizeFoodImageReference } from '../src/lib/imageUrlHelper';
 import { testPostgresConnection } from './postgres';
+import { VERIFIED_DISTRICT_RESEARCH } from './data/verifiedDistrictResearch';
 
 export { isValidFoodImageReference, normalizeFoodImageReference };
 
@@ -1541,10 +1542,53 @@ apiRouter.get('/admin/infra-status', requireAdmin, async (_req: AuthenticatedReq
 
 // ==================== RESEARCH-BASED CONTENT AUDIT & CATALOG ENDPOINTS ====================
 
+// Public GET /api/research/district/:districtId
+apiRouter.get('/research/district/:districtId', async (req: AuthenticatedRequest, res: Response) => {
+  const { districtId } = req.params;
+  const entry = VERIFIED_DISTRICT_RESEARCH[districtId];
+  if (!entry) {
+    res.status(404).json({ error: `No research dossier found for district "${districtId}".` });
+    return;
+  }
+  res.json(entry);
+});
+
+// Public GET /api/research/dossiers
+apiRouter.get('/research/dossiers', async (_req: AuthenticatedRequest, res: Response) => {
+  const allFoods = await dal.getFoods({ includeDrafts: true });
+  const allDistricts = await dal.getDistricts();
+
+  const districtFoodMap: Record<string, any[]> = {};
+  allFoods.forEach((f) => {
+    if (!districtFoodMap[f.districtId]) districtFoodMap[f.districtId] = [];
+    districtFoodMap[f.districtId].push(f);
+  });
+
+  const dossiers = Object.values(VERIFIED_DISTRICT_RESEARCH).map((r) => {
+    const existing = districtFoodMap[r.districtId] || [];
+    return {
+      ...r,
+      hasCatalogFood: existing.length > 0,
+      existingCatalogFoodsCount: existing.length,
+    };
+  });
+
+  const totalDistricts = allDistricts.length;
+  const representedDistricts = Object.keys(districtFoodMap).length;
+  const unrepresentedDistricts = totalDistricts - representedDistricts;
+
+  res.json({
+    totalDistricts,
+    representedDistricts,
+    unrepresentedDistricts,
+    dossiersCount: dossiers.length,
+    dossiers,
+  });
+});
+
 // GET /api/admin/research/district/:districtId
 apiRouter.get('/admin/research/district/:districtId', requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const { districtId } = req.params;
-  const { VERIFIED_DISTRICT_RESEARCH } = await import('./data/verifiedDistrictResearch');
   const entry = VERIFIED_DISTRICT_RESEARCH[districtId];
   if (!entry) {
     res.status(404).json({ error: `No research dossier found for district "${districtId}".` });
@@ -1555,7 +1599,6 @@ apiRouter.get('/admin/research/district/:districtId', requireAdmin, async (req: 
 
 // GET /api/admin/research/dossiers
 apiRouter.get('/admin/research/dossiers', requireAdmin, async (_req: AuthenticatedRequest, res: Response) => {
-  const { VERIFIED_DISTRICT_RESEARCH } = await import('./data/verifiedDistrictResearch');
   const allFoods = await dal.getFoods({ includeDrafts: true });
   const allDistricts = await dal.getDistricts();
 
@@ -1602,7 +1645,6 @@ apiRouter.post('/admin/research/publish-dossier', requireAdmin, async (req: Auth
     }
   }
 
-  const { VERIFIED_DISTRICT_RESEARCH } = await import('./data/verifiedDistrictResearch');
   const dossier = VERIFIED_DISTRICT_RESEARCH[districtId];
   if (!dossier) {
     res.status(404).json({ error: `No verified research entry found for district "${districtId}".` });

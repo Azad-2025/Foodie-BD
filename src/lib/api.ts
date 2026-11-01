@@ -410,11 +410,19 @@ export const api = {
     dossiersCount: number;
     dossiers: any[];
   }> {
-    return request('/api/admin/research/dossiers');
+    try {
+      return await request('/api/research/dossiers');
+    } catch {
+      return await request('/api/admin/research/dossiers');
+    }
   },
 
   async getDistrictResearch(districtId: string): Promise<any> {
-    return request(`/api/admin/research/district/${districtId}`);
+    try {
+      return await request(`/api/research/district/${districtId}`);
+    } catch {
+      return await request(`/api/admin/research/district/${districtId}`);
+    }
   },
 
   async publishResearchDossier(payload: {

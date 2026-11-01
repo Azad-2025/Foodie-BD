@@ -21,6 +21,8 @@ import { ContactPage } from './pages/ContactPage';
 import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
 import { TermsPage } from './pages/TermsPage';
 import { District, Division, Food, PlatformStats } from './types';
+import { DISTRICTS, DIVISIONS } from './data/divisionsAndDistricts';
+import { SEED_FOODS } from './data/seedFoods';
 import { api } from './lib/api';
 
 function AppContent() {
@@ -28,11 +30,18 @@ function AppContent() {
   const [currentRoute, setCurrentRoute] = useState<string>('home');
   const [routeParam, setRouteParam] = useState<string | undefined>(undefined);
 
-  const [districts, setDistricts] = useState<District[]>([]);
-  const [divisions, setDivisions] = useState<Division[]>([]);
-  const [foods, setFoods] = useState<Food[]>([]);
-  const [stats, setStats] = useState<PlatformStats | null>(null);
-  const [isLoadingCore, setIsLoadingCore] = useState<boolean>(true);
+  // Initialize with authentic 64 districts & verified seed catalog for instant 0ms first paint
+  const [districts, setDistricts] = useState<District[]>(DISTRICTS);
+  const [divisions, setDivisions] = useState<Division[]>(DIVISIONS);
+  const [foods, setFoods] = useState<Food[]>(SEED_FOODS);
+  const [stats, setStats] = useState<PlatformStats | null>({
+    totalDistricts: 64,
+    totalDivisions: 8,
+    totalFoods: SEED_FOODS.length,
+    totalTriedByUsers: 0,
+    activeFoodiesCount: 1,
+  });
+  const [isLoadingCore, setIsLoadingCore] = useState<boolean>(false);
 
   // Sync route with window.location.hash for smooth deep-linking and browser navigation
   const parseHash = useCallback(() => {
@@ -67,23 +76,31 @@ function AppContent() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Load core datasets from persistent backend
+  // Load core datasets from backend with resilient Promise.allSettled handling
   const loadCoreData = useCallback(async () => {
     try {
       setIsLoadingCore(true);
-      const [divsData, distsData, foodsData, statsData] = await Promise.all([
+      const [divsRes, distsRes, foodsRes, statsRes] = await Promise.allSettled([
         api.getDivisions(),
         api.getDistricts(),
         api.getFoods(),
         api.getStats(),
       ]);
 
-      setDivisions(divsData);
-      setDistricts(distsData);
-      setFoods(foodsData);
-      setStats(statsData);
+      if (divsRes.status === 'fulfilled' && Array.isArray(divsRes.value) && divsRes.value.length > 0) {
+        setDivisions(divsRes.value);
+      }
+      if (distsRes.status === 'fulfilled' && Array.isArray(distsRes.value) && distsRes.value.length > 0) {
+        setDistricts(distsRes.value);
+      }
+      if (foodsRes.status === 'fulfilled' && Array.isArray(foodsRes.value) && foodsRes.value.length > 0) {
+        setFoods(foodsRes.value);
+      }
+      if (statsRes.status === 'fulfilled' && statsRes.value) {
+        setStats(statsRes.value);
+      }
     } catch (err) {
-      console.error('Failed to load initial core data:', err);
+      console.warn('Initial core data API sync warning, using built-in verified dataset:', err);
     } finally {
       setIsLoadingCore(false);
     }

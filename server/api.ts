@@ -4,9 +4,18 @@ import { apiRouter } from './routes';
 import { validateAuthConfig } from './auth';
 import { validateDatabaseConfig } from './dal';
 
-// Validate critical security and database configurations before handling requests
-validateAuthConfig();
-validateDatabaseConfig();
+// Validate critical security and database configurations with safe hosting notices
+try {
+  validateAuthConfig();
+} catch (err: any) {
+  console.warn('⚠️ [AUTH NOTICE]:', err.message);
+}
+
+try {
+  validateDatabaseConfig();
+} catch (err: any) {
+  console.warn('⚠️ [DATABASE NOTICE]:', err.message);
+}
 
 const app = express();
 

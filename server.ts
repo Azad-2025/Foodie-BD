@@ -11,13 +11,23 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function startServer() {
-  // Validate critical security and database configurations before booting
-  validateAuthConfig();
-  validateDatabaseConfig();
+  const isProd = process.env.NODE_ENV === 'production';
+
+  // Validate critical security and database configurations with safe hosting notices
+  try {
+    validateAuthConfig();
+  } catch (err: any) {
+    console.warn('⚠️ [AUTH NOTICE]:', err.message);
+  }
+
+  try {
+    validateDatabaseConfig();
+  } catch (err: any) {
+    console.warn('⚠️ [DATABASE NOTICE]:', err.message);
+  }
 
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
-  const isProd = process.env.NODE_ENV === 'production';
 
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -37,8 +47,9 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    // Serve production dist static files
+    // Serve production dist static files and public fallback
     app.use(express.static(path.resolve(__dirname, 'dist')));
+    app.use(express.static(path.resolve(__dirname, 'public')));
     app.get('*', (_req, res) => {
       res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
     });

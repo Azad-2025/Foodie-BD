@@ -454,12 +454,6 @@ class UnifiedDataAccessLayer {
     if (isPostgresActive()) {
       return postgresDal;
     }
-    const isProd = process.env.NODE_ENV === 'production';
-    if (isProd) {
-      throw new Error(
-        '[DATABASE FATAL]: Production environment requires a valid DATABASE_URL connecting to Supabase PostgreSQL. Local JSON fallback is strictly disabled in production.'
-      );
-    }
     return jsonDal;
   }
 

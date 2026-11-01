@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { District, Division, Food, MapTheme } from '../types';
+import { DISTRICTS, DIVISIONS } from '../data/divisionsAndDistricts';
+import { SEED_FOODS } from '../data/seedFoods';
 import { BangladeshSvgMap } from '../components/map/BangladeshSvgMap';
 import { BangladeshMap } from '../components/map/BangladeshMap';
 import { FoodImage } from '../components/common/FoodImage';
@@ -45,13 +47,26 @@ const THEME_COLORS: { id: string; name: string; hex: string }[] = [
 ];
 
 export const FoodMapPage: React.FC<FoodMapPageProps> = ({
-  districts,
-  divisions,
-  foods,
+  districts: rawDistricts,
+  divisions: rawDivisions,
+  foods: rawFoods,
   initialDivisionId,
   initialDistrictId,
   navigate,
 }) => {
+  // Guaranteed non-empty fallback datasets for 0ms first-paint and offline/cold-start resilience
+  const districts = useMemo(() => {
+    return rawDistricts && rawDistricts.length > 0 ? rawDistricts : DISTRICTS;
+  }, [rawDistricts]);
+
+  const divisions = useMemo(() => {
+    return rawDivisions && rawDivisions.length > 0 ? rawDivisions : DIVISIONS;
+  }, [rawDivisions]);
+
+  const foods = useMemo(() => {
+    return rawFoods && rawFoods.length > 0 ? rawFoods : SEED_FOODS;
+  }, [rawFoods]);
+
   const { user, isLoggedIn } = useAuth();
   const {
     journey,

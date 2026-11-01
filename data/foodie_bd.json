@@ -963,7 +963,7 @@
       "approximatePriceBdt": 250,
       "dietaryType": "veg",
       "createdAt": "2026-10-13T14:49:17.022Z",
-      "updatedAt": "2026-10-26T12:09:08.558Z",
+      "updatedAt": "2026-11-01T14:00:55.404Z",
       "researchStatus": "gi_certified",
       "verificationStatus": "research_verified",
       "citationSources": [
@@ -2339,6 +2339,20 @@
   ],
   "reports": [
     {
+      "id": "rep_test_1793541655411",
+      "reporterUserId": "user_admin_01",
+      "reason": "Test content review report",
+      "status": "reviewed",
+      "createdAt": "2026-11-01T14:00:55.411Z"
+    },
+    {
+      "id": "rep_test_1793541605303",
+      "reporterUserId": "user_admin_01",
+      "reason": "Test content review report",
+      "status": "reviewed",
+      "createdAt": "2026-11-01T14:00:05.303Z"
+    },
+    {
       "id": "rep_test_1793016548562",
       "reporterUserId": "user_admin_01",
       "reason": "Test content review report",
@@ -2410,6 +2424,86 @@
     }
   ],
   "auditLogs": [
+    {
+      "action": "TEST_AUDIT_ACTION",
+      "entityType": "TEST",
+      "entityId": "test_123",
+      "userId": "user_admin_01",
+      "userName": "Foodie BD Admin",
+      "details": "Verified DAL audit logging integration",
+      "id": "audit_1793541655414_mxmp",
+      "createdAt": "2026-11-01T14:00:55.414Z"
+    },
+    {
+      "action": "USER_REGISTERED",
+      "entityType": "USER",
+      "entityId": "user_15e784de",
+      "userId": "user_15e784de",
+      "userName": "Privilege Escalation Attempt",
+      "details": "User registered with email attacker_1793541655334@example.com",
+      "id": "audit_1793541655386_s4eg",
+      "createdAt": "2026-11-01T14:00:55.386Z"
+    },
+    {
+      "action": "PASSWORD_CHANGED",
+      "entityType": "USER",
+      "entityId": "user_sec_temp_01",
+      "userId": "user_sec_temp_01",
+      "userName": "Security Test User",
+      "details": "User successfully changed their account password via authenticated verification.",
+      "id": "audit_1793541655213_n63a",
+      "createdAt": "2026-11-01T14:00:55.213Z"
+    },
+    {
+      "action": "UPDATE_FOOD",
+      "entityType": "FOOD",
+      "entityId": "food_edit_test_1793541654592",
+      "userId": "user_2bc0e8c2",
+      "userName": "mrazad0101@gmail.com",
+      "details": "Updated food: Updated Test Delicacy (হালনাগাদ পরীক্ষামূলক খাবার)",
+      "id": "audit_1793541654595_i8jl",
+      "createdAt": "2026-11-01T14:00:54.595Z"
+    },
+    {
+      "action": "TEST_AUDIT_ACTION",
+      "entityType": "TEST",
+      "entityId": "test_123",
+      "userId": "user_admin_01",
+      "userName": "Foodie BD Admin",
+      "details": "Verified DAL audit logging integration",
+      "id": "audit_1793541605307_ild8",
+      "createdAt": "2026-11-01T14:00:05.307Z"
+    },
+    {
+      "action": "USER_REGISTERED",
+      "entityType": "USER",
+      "entityId": "user_af4b5a2d",
+      "userId": "user_af4b5a2d",
+      "userName": "Privilege Escalation Attempt",
+      "details": "User registered with email attacker_1793541605228@example.com",
+      "id": "audit_1793541605276_f5ai",
+      "createdAt": "2026-11-01T14:00:05.276Z"
+    },
+    {
+      "action": "PASSWORD_CHANGED",
+      "entityType": "USER",
+      "entityId": "user_sec_temp_01",
+      "userId": "user_sec_temp_01",
+      "userName": "Security Test User",
+      "details": "User successfully changed their account password via authenticated verification.",
+      "id": "audit_1793541605128_5h7z",
+      "createdAt": "2026-11-01T14:00:05.128Z"
+    },
+    {
+      "action": "UPDATE_FOOD",
+      "entityType": "FOOD",
+      "entityId": "food_edit_test_1793541604496",
+      "userId": "user_2bc0e8c2",
+      "userName": "mrazad0101@gmail.com",
+      "details": "Updated food: Updated Test Delicacy (হালনাগাদ পরীক্ষামূলক খাবার)",
+      "id": "audit_1793541604499_ynag",
+      "createdAt": "2026-11-01T14:00:04.499Z"
+    },
     {
       "action": "TEST_AUDIT_ACTION",
       "entityType": "TEST",

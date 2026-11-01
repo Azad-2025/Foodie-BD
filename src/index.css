@@ -14,10 +14,20 @@
   font-family: 'Noto Sans Bengali', system-ui, sans-serif;
 }
 
-/* Custom leaflet tweaks */
+/* Custom leaflet tweaks & container geometry */
 .leaflet-container {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 520px;
   font-family: 'Plus Jakarta Sans', 'Noto Sans Bengali', system-ui, sans-serif;
   background-color: #f1f5f9;
+  z-index: 1;
+}
+
+.custom-food-marker,
+.custom-district-map-label {
+  background: transparent !important;
+  border: none !important;
 }
 
 .custom-district-tooltip {
